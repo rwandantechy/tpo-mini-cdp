@@ -82,6 +82,8 @@ out
 .nuxt
 dist
 .output
+# Vercel bundles this at deploy time. The runtime loads .js as CommonJS.
+backend/app.mjs
 
 # Gatsby files
 .cache/

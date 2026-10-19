@@ -18,6 +18,7 @@ function readCaCertificate(relativePath: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     resolve(here, '../../..', relativePath),
+    resolve(here, relativePath),
     resolve(process.cwd(), relativePath),
     resolve(process.cwd(), '..', relativePath),
   ];
