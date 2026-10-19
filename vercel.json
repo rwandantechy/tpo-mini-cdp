@@ -4,9 +4,10 @@
     "backend": {
       "root": "backend",
       "framework": "express",
-      "entrypoint": "src/app.ts",
+      "entrypoint": "app.mjs",
+      "buildCommand": "npm run vercel-build",
       "functions": {
-        "src/app.ts": {
+        "app.mjs": {
           "maxDuration": 30,
           "includeFiles": "../certs/supabase-ca.crt"
         }

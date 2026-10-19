@@ -81,9 +81,8 @@ export function createApp(): Express {
 }
 
 /**
- * Vercel’s Express builder ignores `entrypoint` and uses the first file that
- * imports express. `src/app.ts` is ahead of `src/server.ts`, so this default
- * export is the handler that actually runs.
+ * Default export bundled to `app.mjs` on Vercel. A `.js` build is loaded as
+ * CommonJS and crashes on these imports.
  */
 let vercelApp: Express | undefined;
 
