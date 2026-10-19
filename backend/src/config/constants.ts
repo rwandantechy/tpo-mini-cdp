@@ -30,6 +30,9 @@ export const PASSWORD_MAX_LENGTH = 200;
 
 export const WEBHOOK_REPLAY_WINDOW_SECONDS = 300;
 
+export const SEARCH_LIMIT = 25;
+export const ACTIVITY_LIMIT = 50;
+
 export const JSON_BODY_LIMIT = '16kb';
 export const SHUTDOWN_TIMEOUT_MS = 10_000;
 

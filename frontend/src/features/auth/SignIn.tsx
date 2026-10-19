@@ -24,7 +24,7 @@ export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<v
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-blush px-4">
+    <main className="flex min-h-dvh items-center justify-center bg-blush px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-center text-xl font-semibold text-ink">Mini CDP</h1>
         <p className="mt-2 text-center text-sm text-ink-soft">

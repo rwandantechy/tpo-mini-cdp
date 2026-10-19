@@ -14,6 +14,7 @@ import { requireAuth } from './middleware/requireAuth.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { overviewRouter } from './routes/overview.js';
+import { subscribersRouter } from './routes/subscribers.js';
 
 export function createApp(): Express {
   const env = getServerEnv();
@@ -50,6 +51,7 @@ export function createApp(): Express {
   app.use('/api/auth', limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
 
   app.use('/api/overview', limiters.api, requireAuth, overviewRouter());
+  app.use('/api/subscribers', limiters.api, requireAuth, subscribersRouter());
 
   app.use(notFoundHandler);
   app.use(errorHandler);
