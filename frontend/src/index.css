@@ -1,0 +1,42 @@
+@import 'tailwindcss';
+
+/** Contrast on white: coral 2.7:1 (fills), coral-deep 4.7:1 (text), ink 13.9:1. */
+@theme {
+  --color-coral: #f2817d;
+  --color-coral-deep: #c14f4b;
+  --color-coral-deeper: #a84440;
+  --color-blush: #fdeeed;
+
+  --color-ink: #2c2c2c;
+  --color-ink-soft: #5c5c5c;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f1f1;
+  --color-line: #e4e4e4;
+
+  --color-positive: #2f7d64;
+  --color-caution: #9a6b1f;
+  --color-critical: #b3332e;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, ui-sans-serif, sans-serif;
+
+  --radius-card: 0.75rem;
+  --shadow-card: 0 1px 2px rgb(44 44 44 / 0.06), 0 1px 3px rgb(44 44 44 / 0.04);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface-muted font-sans text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-coral-deep;
+  }
+
+  th {
+    @apply text-left font-medium;
+  }
+}

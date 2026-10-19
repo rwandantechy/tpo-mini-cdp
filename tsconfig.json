@@ -1,0 +1,16 @@
+{
+  "//": "Type-checks everything the build config leaves out: tests and the CLI scripts. Emits nothing.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["backend/src", "backend/tests", "scripts"]
+}
