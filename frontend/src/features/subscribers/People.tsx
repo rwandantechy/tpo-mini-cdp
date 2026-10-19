@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Badge, Notice, Pager, Spinner } from '../../components/ui.tsx';
+import { Notice, Pager } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
 import { PAGE_SIZE } from '../../lib/constants.ts';
-import { formatDate } from '../../lib/format.ts';
 import { useDebounced } from '../../lib/useDebounced.ts';
+import { useEscape } from '../../lib/useEscape.ts';
+import { PersonList } from './PersonList.tsx';
 import { SubscriberRecord } from './SubscriberProfile.tsx';
 import type { PeoplePage } from './types.ts';
 
@@ -18,6 +19,9 @@ export function People() {
   const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setSelectedId(null), []);
+
+  useEscape(Boolean(selectedId), close);
 
   useEffect(() => {
     searchRef.current?.focus();
@@ -44,17 +48,6 @@ export function People() {
       }
     })();
   }, [debouncedQuery, offset]);
-
-  useEffect(() => {
-    if (!selectedId) return;
-
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') setSelectedId(null);
-    }
-
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId]);
 
   const people = page?.results ?? null;
   const total = page?.total ?? 0;
@@ -98,56 +91,21 @@ export function People() {
           </div>
         ) : null}
 
-        {!people && !error ? (
-          <div className="p-4">
-            <Spinner label="Loading people…" />
-          </div>
-        ) : null}
-
-        {people ? (
-          <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
-            {people.length === 0 ? (
-              <p className="px-4 py-8 text-sm text-ink-soft">
-                {query.trim() ? `No one matched “${query.trim()}”.` : 'No subscribers yet.'}
-              </p>
-            ) : (
-              <ul>
-                {people.map((person) => {
-                  const selected = person.id === selectedId;
-                  return (
-                    <li key={person.id} className="border-b border-line">
-                      <button
-                        type="button"
-                        className={`flex w-full items-start gap-3 px-4 py-3 text-left ${
-                          selected ? 'bg-blush' : 'hover:bg-surface-muted'
-                        }`}
-                        onClick={() => setSelectedId(person.id)}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-ink">{person.email}</span>
-                          <span className="mt-0.5 block text-sm text-ink-soft">
-                            {person.acquisitionSource ?? 'Unknown source'}
-                            {' · '}
-                            {person.lastOpenDate ? `Last open ${formatDate(person.lastOpenDate)}` : 'Never opened'}
-                          </span>
-                        </span>
-                        <Badge tone={person.status === 'active' ? 'ok' : 'muted'}>{person.status}</Badge>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {busy ? <p className="px-4 py-2 text-xs text-ink-soft">Updating…</p> : null}
-          </div>
-        ) : null}
+        <PersonList
+          people={error && !people ? [] : people}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          empty={query.trim() ? `No one matched “${query.trim()}”.` : 'No subscribers yet.'}
+          busy={busy}
+          listRef={listRef}
+        />
 
         <Pager offset={offset} limit={limit} total={total} busy={busy} onOffset={setOffset} />
       </section>
 
       <section className={`min-h-0 min-w-0 flex-1 flex-col bg-surface-muted ${selectedId ? 'flex' : 'hidden lg:flex'}`}>
         {selectedId ? (
-          <SubscriberRecord id={selectedId} onClose={() => setSelectedId(null)} />
+          <SubscriberRecord id={selectedId} onClose={close} />
         ) : (
           <div className="hidden h-full items-center justify-center p-8 text-sm text-ink-soft lg:flex">
             Select someone to see newsletter, site, and app activity.

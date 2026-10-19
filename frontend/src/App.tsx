@@ -4,9 +4,16 @@ import { Button, Notice, Spinner } from './components/ui.tsx';
 import { SignIn } from './features/auth/SignIn.tsx';
 import { useSession } from './features/auth/useSession.ts';
 import { Dashboard } from './features/overview/Dashboard.tsx';
+import { Segments } from './features/segments/Segments.tsx';
 import { People } from './features/subscribers/People.tsx';
 
-type Screen = 'overview' | 'people';
+const NAV = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'people', label: 'People' },
+  { id: 'segments', label: 'Segments' },
+] as const;
+
+type Screen = (typeof NAV)[number]['id'];
 
 export function App() {
   const { status, user, problem, signIn, signOut, recheck } = useSession();
@@ -50,12 +57,11 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 p-3">
-          <SideLink active={screen === 'overview'} onClick={() => setScreen('overview')}>
-            Overview
-          </SideLink>
-          <SideLink active={screen === 'people'} onClick={() => setScreen('people')}>
-            People
-          </SideLink>
+          {NAV.map((item) => (
+            <SideLink key={item.id} active={screen === item.id} onClick={() => setScreen(item.id)}>
+              {item.label}
+            </SideLink>
+          ))}
         </nav>
 
         <div className="border-t border-line p-3">
@@ -83,18 +89,17 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
             <div className="h-full overflow-auto">
               <Dashboard />
             </div>
-          ) : (
-            <People />
-          )}
+          ) : null}
+          {screen === 'people' ? <People /> : null}
+          {screen === 'segments' ? <Segments /> : null}
         </main>
 
-        <nav className="grid grid-cols-2 border-t border-line bg-surface md:hidden">
-          <Tab active={screen === 'overview'} onClick={() => setScreen('overview')}>
-            Overview
-          </Tab>
-          <Tab active={screen === 'people'} onClick={() => setScreen('people')}>
-            People
-          </Tab>
+        <nav className="grid grid-cols-3 border-t border-line bg-surface md:hidden">
+          {NAV.map((item) => (
+            <Tab key={item.id} active={screen === item.id} onClick={() => setScreen(item.id)}>
+              {item.label}
+            </Tab>
+          ))}
         </nav>
       </div>
     </div>
