@@ -1,12 +1,16 @@
+import { randomUUID } from 'node:crypto';
+
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ENGAGED_PRESET, INSTAGRAM_COLD_PRESET } from '../src/config/constants.js';
-import { closePool } from '../src/lib/db.js';
+import { closePool, query } from '../src/lib/db.js';
 import { assertNoPii, containsPii } from '../src/lib/pii.js';
-import { ask } from '../src/services/assistant/ask.js';
+import { ask, PII_REFUSAL } from '../src/services/assistant/ask.js';
 import { firstPagesForNewSubscribers, snapshotCounts, subscriberBreakdown, topPages } from '../src/services/assistant/analytics.js';
 import type { GeminiClient, GeminiRequest, GeminiTurn } from '../src/services/assistant/gemini.js';
+import { planQuestion } from '../src/services/assistant/plan.js';
 import { runTool } from '../src/services/assistant/tools.js';
+import { countSegment, previewSegment } from '../src/services/segments.js';
 import { hasDatabase } from './helpers/database.js';
 
 const describeDb = hasDatabase ? describe : describe.skip;
@@ -51,19 +55,31 @@ describeDb('assistant analytics', () => {
     assertNoPii(result.data);
   });
 
-  it('does not treat the 30-day cold window as a signup date filter', async () => {
-    const result = await runTool(
-      'count_segment',
-      { acquisitionSource: 'Instagram', lastOpen: 'cold', signupFrom: '2026-08-29', signupTo: '2026-09-28' },
-      'growth',
-    );
+  it('uses the same filters as the segment screen', async () => {
+    const cold = { ...INSTAGRAM_COLD_PRESET };
+    const coldAndNew = {
+      ...INSTAGRAM_COLD_PRESET,
+      signupFrom: '2026-08-29',
+      signupTo: '2026-09-28',
+    };
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.total).toBe(229);
-    expect(result.data.signupFrom).toBeUndefined();
-    expect(result.table?.rows[0]).toMatchObject({ total: 229, source: 'Instagram', lastOpen: 'cold' });
-    expect(result.table?.rows[0]).not.toHaveProperty('signupFrom');
+    const [coldCount, coldPreview, coldTool, bothCount, bothPreview, bothTool] = await Promise.all([
+      countSegment(cold),
+      previewSegment(cold, { limit: 1 }),
+      runTool('count_segment', cold, 'growth'),
+      countSegment(coldAndNew),
+      previewSegment(coldAndNew, { limit: 1 }),
+      runTool('count_segment', coldAndNew, 'growth'),
+    ]);
+
+    expect(coldCount.total).toBe(229);
+    expect(coldPreview.total).toBe(229);
+    expect(coldTool.ok && coldTool.data.total).toBe(229);
+
+    expect(bothCount.total).toBe(48);
+    expect(bothPreview.total).toBe(48);
+    expect(bothTool.ok && bothTool.data.total).toBe(48);
+    if (bothTool.ok) expect(bothTool.data.signupFrom).toBe('2026-08-29');
   });
 
   it('accepts a lowercase source and keeps Facebook on a status filter', async () => {
@@ -98,6 +114,48 @@ describeDb('assistant analytics', () => {
     assertNoPii(result.data);
   });
 
+  it('counts a page view on or after signup, not an earlier visit', async () => {
+    const visitorId = `v_reg_${randomUUID()}`;
+    const before = `/reg-before-${randomUUID()}`;
+    const after = `/reg-after-${randomUUID()}`;
+    const email = `first-page-${randomUUID()}@example.com`;
+    let subscriberId: string | undefined;
+
+    try {
+      const inserted = await query<{ id: string }>(
+        `
+        insert into subscribers (email_normalized, email_original, signup_date, status, acquisition_source)
+        values ($1, $1, '2026-09-01', 'active', 'Direct')
+        returning id
+        `,
+        [email],
+      );
+      subscriberId = inserted[0]?.id;
+      await query(
+        `
+        insert into web_visitors (visitor_id, subscriber_id, identified_at, first_seen_at, last_seen_at)
+        values ($1, $2, '2026-09-01T12:00:00Z', '2026-08-01T00:00:00Z', '2026-09-01T12:00:00Z')
+        `,
+        [visitorId, subscriberId],
+      );
+      await query(
+        `
+        insert into web_events (visitor_id, page, occurred_at, email_captured)
+        values ($1, $2, '2026-08-01T00:00:00Z', false), ($1, $3, '2026-09-01T12:00:00Z', false)
+        `,
+        [visitorId, before, after],
+      );
+
+      const table = await firstPagesForNewSubscribers(30, 1000);
+      const pages = table.rows.map((row) => row.page);
+
+      expect(pages).toContain(after);
+      expect(pages).not.toContain(before);
+    } finally {
+      await query('delete from web_visitors where visitor_id = $1', [visitorId]);
+      if (subscriberId) await query('delete from subscribers where id = $1', [subscriberId]);
+    }
+  });
   it('keeps breakdowns and page tables free of emails', async () => {
     const [breakdown, pages, first] = await Promise.all([
       subscriberBreakdown(),
@@ -120,33 +178,68 @@ describeDb('assistant analytics', () => {
     });
   });
 
-  it('sends Gemini only the question, system prompt, and aggregate tool results', async () => {
+  it('sends Gemini the aggregate only, then drops a reply that names someone', async () => {
     const gemini = scriptedGemini([
-      {
-        functionCalls: [{ name: 'count_segment', args: { ...INSTAGRAM_COLD_PRESET } }],
-        modelContent: {
-          role: 'model',
-          parts: [{ functionCall: { name: 'count_segment', args: { ...INSTAGRAM_COLD_PRESET } } }],
-        },
-      },
       { text: '229 Instagram signups have not opened in 30 days.' },
     ]);
 
-    const result = await ask('How many Instagram signups went cold?', {
+    const result = await ask('How many Instagram signups went cold in the last 30 days?', {
       gemini,
       model: 'test-model',
       createdBy: 'growth',
+      history: [
+        { question: 'what about claire.collins447@gmail.com', answer: 'blocked' },
+        { question: 'who is most active?', answer: 'Claire Collins is the most active reader.' },
+      ],
     });
 
-    const sent = JSON.stringify(gemini.requests);
-    expect(gemini.requests).toHaveLength(2);
-    expect(sent).not.toMatch(/@/);
-    expect(sent).not.toContain('claire');
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'How many Instagram signups went cold?' }] },
-    ]);
-    expect(JSON.stringify(gemini.requests[1]?.contents)).toContain('"total":229');
+    const sent = JSON.parse(String(gemini.requests[0]?.contents[0]?.parts?.[0]?.text)) as {
+      total: number;
+      filters: { lastOpen: string };
+    };
+    expect(gemini.requests).toHaveLength(1);
+    expect(gemini.requests[0]?.includeTools).toBe(false);
+    expect(JSON.stringify(gemini.requests)).not.toMatch(/@/);
+    expect(JSON.stringify(gemini.requests)).not.toContain('claire');
+    expect(JSON.stringify(gemini.requests)).not.toContain('Claire');
+    expect(JSON.stringify(gemini.requests)).not.toContain('How many Instagram');
+    expect(sent.total).toBe(229);
+    expect(sent.filters.lastOpen).toBe('cold');
     expect(result.answer).toContain('229');
+    expect(result.blocked).toBe(false);
     expect(result.tables[0]?.rows[0]?.total).toBe(229);
+
+    const named = scriptedGemini([{ text: 'Claire Collins is one of them.' }]);
+    const refused = await ask('How many Instagram signups went cold in the last 30 days?', {
+      gemini: named,
+      model: 'test-model',
+      createdBy: 'growth',
+    });
+    expect(JSON.stringify(named.requests)).not.toContain('Claire');
+    expect(refused.blocked).toBe(true);
+    expect(refused.answer).toBe(PII_REFUSAL);
+    expect(refused.tables).toEqual([]);
+
+    const followUp = scriptedGemini([{ text: '48 Facebook signups are unsubscribed.' }]);
+    const followed = await ask('how many of them unsubscribed?', {
+      gemini: followUp,
+      model: 'test-model',
+      createdBy: 'growth',
+      history: [{ question: 'how many facebook signups?', answer: 'There are 552 Facebook signups.' }],
+    });
+    const followSent = JSON.parse(String(followUp.requests[0]?.contents[0]?.parts?.[0]?.text)) as {
+      total: number;
+      filters: { acquisitionSource: string; status: string };
+    };
+    expect(JSON.stringify(followUp.requests)).not.toContain('how many facebook');
+    expect(JSON.stringify(followUp.requests)).not.toContain('There are 552');
+    expect(followSent.filters).toMatchObject({ acquisitionSource: 'Facebook', status: 'unsubscribed' });
+    expect(followSent.total).toBe(48);
+    expect(followed.answer).toContain('48');
+
+    const planned = planQuestion('How many Instagram signups signed up in the last 30 days and went cold?');
+    expect(planned.ok).toBe(true);
+    if (!planned.ok || !planned.definition) return;
+    expect(await countSegment(planned.definition)).toMatchObject({ total: 48 });
   });
 });

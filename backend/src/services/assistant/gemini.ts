@@ -16,6 +16,8 @@ export interface GeminiRequest {
   systemInstruction: string;
   contents: Content[];
   timeoutMs?: number;
+  /** Narration calls send JSON only. Tool declarations stay off so the question is not implied. */
+  includeTools?: boolean;
 }
 
 export interface GeminiTurn {
@@ -82,7 +84,7 @@ async function callModel(ai: GoogleGenAI, request: GeminiRequest, model: string)
     contents: request.contents,
     config: {
       systemInstruction: request.systemInstruction,
-      tools: [{ functionDeclarations: [...TOOL_DECLARATIONS] }],
+      ...(request.includeTools === false ? {} : { tools: [{ functionDeclarations: [...TOOL_DECLARATIONS] }] }),
       automaticFunctionCalling: { disable: true },
       abortSignal: AbortSignal.timeout(timeoutMs),
     },

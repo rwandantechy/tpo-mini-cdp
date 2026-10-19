@@ -12,13 +12,12 @@ loadDotenv();
 
 interface LinkedUser {
   user_id: string;
-  email_original: string | null;
 }
 
 async function sampleBody(): Promise<{ body: Record<string, unknown>; note?: string }> {
   const linked = await queryOne<LinkedUser>(
     `
-    select user_id, email_original
+    select user_id
     from app_users
     where subscriber_id is not null
     order by user_id
@@ -27,8 +26,8 @@ async function sampleBody(): Promise<{ body: Record<string, unknown>; note?: str
   );
 
   const userId = linked?.user_id ?? SAMPLE_APP_EVENT.user_id;
-  const note = linked?.email_original
-    ? `${SAMPLE_APP_EVENT.event} for ${linked.email_original} — search that person and hit Refresh`
+  const note = linked
+    ? `${SAMPLE_APP_EVENT.event} for linked app user ${userId}`
     : 'unknown user (no linked app account in the database yet)';
 
   return {

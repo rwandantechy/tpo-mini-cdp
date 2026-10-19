@@ -70,6 +70,7 @@ export async function firstPagesForNewSubscribers(
       join subscribers s on s.id = v.subscriber_id
       where s.signup_date is not null
         and s.signup_date >= $1::date
+        and e.occurred_at >= s.signup_date::timestamptz
       order by v.subscriber_id, e.occurred_at
     )
     select page, count(*) as readers

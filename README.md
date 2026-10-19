@@ -18,11 +18,13 @@ An unknown `user_id` is stored with no subscriber link. Anonymous device events 
 
 ## Ask
 
-Gemini sees counts and tables, not people, emails, or ids. An email, a Title Case name, or an `u_` / `d_` / `evt_` id is dropped before the call, including in earlier turns. The UI refuses an answer that contains an email.
+Gemini receives a tool name, filters, and counts. It does not receive the question, earlier turns, emails, names, or subscriber rows. A question the app cannot map to those aggregates is answered in the app and is not sent. A model reply that contains an email or a two-word name is replaced before it reaches the UI.
+
+Cold is last open before 29 August 2026, for every signup date. Adding a signup window is a separate filter. "Which pages do new subscribers hit first?" uses the first page view on or after the signup date.
 
 ## Limits
 
-- Lowercase names are not detected.
+- A single given name, with no surname, is not treated as a person.
 - Two simultaneous first saves of one segment name can insert two rows.
 - The API user owns the tables and bypasses row-level security. The session cookie closes the routes.
 - Rate limits are per server instance.

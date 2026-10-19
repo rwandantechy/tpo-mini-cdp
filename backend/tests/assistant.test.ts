@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { RATE_LIMITS } from '../src/config/constants.js';
 import { SESSION_COOKIE } from '../src/lib/session.js';
+import { containsPii } from '../src/lib/pii.js';
 import { ask, PII_REFUSAL, plainAnswer, systemInstruction } from '../src/services/assistant/ask.js';
+import { planQuestion } from '../src/services/assistant/plan.js';
 import {
   isGeminiCapacityError,
   isGeminiTimeoutError,
@@ -77,6 +79,32 @@ describe('POST /api/assistant', () => {
     expect(JSON.stringify(response.body)).not.toContain('Claire');
   });
 
+  it('blocks a lowercase name before a missing API key would matter', async () => {
+    const { app: signed, cookie } = await signIn();
+    const response = await request(signed)
+      .post('/api/assistant')
+      .set('Cookie', cookie)
+      .send({ question: 'what did claire collins do?' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.blocked).toBe(true);
+    expect(response.body.answer).toBe(PII_REFUSAL);
+    expect(JSON.stringify(response.body)).not.toContain('claire');
+  });
+
+  it('answers an unsupported question without calling Gemini', async () => {
+    const { app: signed, cookie } = await signIn();
+    const response = await request(signed)
+      .post('/api/assistant')
+      .set('Cookie', cookie)
+      .send({ question: 'What is the weather in Lisbon?' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.blocked).toBe(false);
+    expect(response.body.answer).toMatch(/suggested questions/);
+    expect(response.body.tables).toEqual([]);
+  });
+
   it('blocks an email before a missing API key would matter', async () => {
     const { app: signed, cookie } = await signIn();
     const response = await request(signed)
@@ -141,106 +169,32 @@ describe('isGeminiCapacityError', () => {
 describe('ask model-request boundary', () => {
   it('gives the model a job, not a scripted answer', () => {
     const prompt = systemInstruction();
-    expect(prompt).toContain('not signup date');
     expect(prompt).toContain('Do not invent counts');
+    expect(prompt).toContain('not signup date');
     expect(prompt).not.toContain('one or two plain sentences');
     expect(prompt).not.toContain('count_instagram_cold');
+    expect(containsPii(prompt)).toBe(false);
   });
 
   it('keeps markdown for the app to render', () => {
     expect(plainAnswer('**552** Facebook signups')).toBe('**552** Facebook signups');
   });
 
-  it('keeps prior turns so follow-ups can reuse the last filter', async () => {
-    const gemini = scriptedGemini([{ text: '48 Facebook signups are unsubscribed.' }]);
-
-    await ask('how many of them unsubscribed?', {
-      gemini,
-      model: 'test-model',
-      createdBy: 'growth',
-      history: [{ question: 'how many facebook signups?', answer: 'There are 552 Facebook signups.' }],
-    });
-
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
-      { role: 'model', parts: [{ text: 'There are 552 Facebook signups.' }] },
-      { role: 'user', parts: [{ text: 'how many of them unsubscribed?' }] },
+  it('resolves a follow-up from the previous question, not from its prose', () => {
+    const plan = planQuestion('how many of them unsubscribed?', [
+      { question: 'how many facebook signups?', answer: 'There are 552 Facebook signups.' },
     ]);
+
+    expect(plan).toMatchObject({
+      ok: true,
+      tool: 'count_segment',
+      args: { acquisitionSource: 'Facebook', status: 'unsubscribed' },
+    });
+    expect(JSON.stringify(plan)).not.toContain('552');
+    expect(JSON.stringify(plan)).not.toContain('how many facebook');
   });
 
-  it('drops a history turn that contains an email', async () => {
-    const gemini = scriptedGemini([{ text: '552 Facebook signups.' }]);
-
-    await ask('how many facebook signups?', {
-      gemini,
-      model: 'test-model',
-      createdBy: 'growth',
-      history: [{ question: 'what about claire.collins447@gmail.com', answer: 'blocked' }],
-    });
-
-    const sent = JSON.stringify(gemini.requests);
-    expect(sent).not.toContain('claire');
-    expect(sent).not.toMatch(/@/);
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
-    ]);
-  });
-
-  it('drops a history answer that contains an email and still answers the follow-up', async () => {
-    const gemini = scriptedGemini([{ text: '552 Facebook signups.' }]);
-
-    const result = await ask('how many facebook signups?', {
-      gemini,
-      model: 'test-model',
-      createdBy: 'growth',
-      history: [{ question: 'who should we contact?', answer: 'Try claire.collins447@gmail.com.' }],
-    });
-
-    expect(result.blocked).toBe(false);
-    const sent = JSON.stringify(gemini.requests);
-    expect(sent).not.toContain('claire');
-    expect(sent).not.toMatch(/@/);
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
-    ]);
-  });
-
-  it('drops a history answer that names a person and still answers the follow-up', async () => {
-    const gemini = scriptedGemini([{ text: '552 Facebook signups.' }]);
-
-    const result = await ask('how many facebook signups?', {
-      gemini,
-      model: 'test-model',
-      createdBy: 'growth',
-      history: [{ question: 'who is most active?', answer: 'Claire Collins is the most active reader.' }],
-    });
-
-    expect(result.blocked).toBe(false);
-    expect(JSON.stringify(gemini.requests)).not.toContain('Claire');
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
-    ]);
-  });
-
-  it('keeps a history answer that is an analytics heading', async () => {
-    const gemini = scriptedGemini([{ text: 'Still 174.' }]);
-    const answer = '## Top Pages\n\nInstagram is 31% of the list. 174 are still subscribed.';
-
-    await ask('how many of them are still subscribed?', {
-      gemini,
-      model: 'test-model',
-      createdBy: 'growth',
-      history: [{ question: 'break down signup source', answer }],
-    });
-
-    expect(gemini.requests[0]?.contents).toEqual([
-      { role: 'user', parts: [{ text: 'break down signup source' }] },
-      { role: 'model', parts: [{ text: answer }] },
-      { role: 'user', parts: [{ text: 'how many of them are still subscribed?' }] },
-    ]);
-  });
-
-  it('never calls Gemini when the question contains PII', async () => {
+  it('never calls Gemini when the question contains an email', async () => {
     const gemini = scriptedGemini([{ text: 'should not run' }]);
 
     const result = await ask('Tell me about claire.collins447@gmail.com', {
@@ -269,18 +223,41 @@ describe('ask model-request boundary', () => {
     expect(JSON.stringify(result)).not.toContain('Claire');
   });
 
-  it('does not show a model answer that invented an email', async () => {
-    const gemini = scriptedGemini([{ text: 'Ask claire.collins447@gmail.com.' }]);
+  it('never calls Gemini for a lowercase name', async () => {
+    const gemini = scriptedGemini([{ text: 'should not run' }]);
 
-    const result = await ask('How many Facebook signups?', {
+    const result = await ask('what did claire collins do?', {
       gemini,
       model: 'test-model',
       createdBy: 'growth',
     });
 
+    expect(gemini.requests).toEqual([]);
     expect(result.blocked).toBe(true);
     expect(result.answer).toBe(PII_REFUSAL);
-    expect(result.tables).toEqual([]);
-    expect(JSON.stringify(result)).not.toContain('claire.collins447@gmail.com');
+    expect(JSON.stringify(result)).not.toContain('claire');
+  });
+
+  it('never calls Gemini for a question it cannot map', async () => {
+    const gemini = scriptedGemini([{ text: 'should not run' }]);
+
+    const result = await ask('What is the weather in Lisbon?', {
+      gemini,
+      model: 'test-model',
+      createdBy: 'growth',
+    });
+
+    expect(gemini.requests).toEqual([]);
+    expect(result.blocked).toBe(false);
+    expect(result.answer).toMatch(/suggested questions/);
+  });
+
+  it('does not keep a history turn that names a person', () => {
+    const plan = planQuestion('how many facebook signups?', [
+      { question: 'who is most active?', answer: 'Claire Collins is the most active reader.' },
+    ]);
+
+    expect(JSON.stringify(plan)).not.toContain('Claire');
+    expect(plan).toMatchObject({ ok: true, tool: 'count_segment', args: { acquisitionSource: 'Facebook' } });
   });
 });

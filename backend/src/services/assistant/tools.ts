@@ -7,7 +7,6 @@ import {
   SEGMENT_NAME_MAX_LENGTH,
   SUBSCRIBER_STATUSES,
 } from '../../config/constants.js';
-import { daysBeforeReference } from '../../lib/dates.js';
 import { assertNoPii, containsPii, findPii, PiiBlockedError } from '../../lib/pii.js';
 import { countSegment, saveSegment, segmentDefinitionSchema, type SegmentDefinition } from '../segments.js';
 import {
@@ -183,7 +182,7 @@ async function execute(
       return { ok: true, data: { rows: table.rows }, table };
     }
     case 'count_segment': {
-      const definition = countDefinition(args);
+      const definition = segmentDefinitionSchema.parse(normalizeFilters(args));
       const counted = await countSegment(definition);
       return {
         ok: true,
@@ -228,16 +227,6 @@ function parseSave(args: Record<string, unknown>): { name: string; definition: S
       ? (nested as Record<string, unknown>)
       : args;
   return saveSchema.parse({ name: args.name, definition: normalizeFilters(raw) });
-}
-
-/** Lite models treat “cold in 30 days” as a signup window. Cold is last open. */
-function countDefinition(args: Record<string, unknown>): SegmentDefinition {
-  const definition = segmentDefinitionSchema.parse(normalizeFilters(args));
-  const cutoff = daysBeforeReference(COLD_WINDOW_DAYS);
-  if (definition.lastOpen !== 'cold' || definition.signupFrom !== cutoff) return definition;
-
-  const { signupFrom: _from, signupTo: _to, ...rest } = definition;
-  return rest;
 }
 
 function normalizeFilters(args: Record<string, unknown>): Record<string, unknown> {

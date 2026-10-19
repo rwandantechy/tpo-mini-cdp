@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { SAMPLE_APP_EVENT } from '../src/config/constants.js';
 import { assertNoPii, containsPii, findPii } from '../src/lib/pii.js';
-import { modelUserText, PII_REFUSAL, systemInstruction } from '../src/services/assistant/ask.js';
+import { PII_REFUSAL, systemInstruction } from '../src/services/assistant/ask.js';
+import { planQuestion } from '../src/services/assistant/plan.js';
 
 describe('findPii', () => {
   it('flags an email in a sentence', () => {
@@ -15,8 +16,9 @@ describe('findPii', () => {
     expect(findPii(`event ${SAMPLE_APP_EVENT.event_id}`)).toEqual(['event']);
   });
 
-  it('flags a first and last name', () => {
+  it('flags a first and last name in either case', () => {
     expect(findPii('What did Claire Collins do?')).toEqual(['name']);
+    expect(findPii('what did claire collins do?')).toEqual(['name']);
   });
 
   it('lets ordinary Growth questions through', () => {
@@ -24,23 +26,29 @@ describe('findPii', () => {
     expect(containsPii('Which pages do new subscribers hit first?')).toBe(false);
     expect(containsPii('Build a list of our most engaged readers')).toBe(false);
     expect(containsPii('Unsubscribe Rate Performance')).toBe(false);
+    expect(containsPii('229 Instagram signups have not opened in 30 days.')).toBe(false);
   });
 });
 
-describe('modelUserText', () => {
-  it('is the exact string that would be sent to Gemini', () => {
-    expect(modelUserText('  How many Instagram signups went cold?  ')).toEqual({
+describe('planQuestion', () => {
+  it('does not put the question text on the plan', () => {
+    const plan = planQuestion('  How many Instagram signups went cold in the last 30 days?  ');
+    expect(plan).toEqual({
       ok: true,
-      text: 'How many Instagram signups went cold?',
+      tool: 'count_segment',
+      args: { acquisitionSource: 'Instagram', lastOpen: 'cold' },
+      definition: { acquisitionSource: 'Instagram', lastOpen: 'cold' },
     });
+    expect(JSON.stringify(plan)).not.toContain('How many');
   });
 
-  it('refuses to produce a model payload when the question contains an email', () => {
-    expect(modelUserText('Tell me about claire.collins447@gmail.com')).toEqual({ ok: false, reason: 'pii' });
+  it('refuses an email without planning a tool', () => {
+    expect(planQuestion('Tell me about claire.collins447@gmail.com')).toEqual({ ok: false, reason: 'pii' });
   });
 
-  it('refuses a named person without an email', () => {
-    expect(modelUserText('What did Claire Collins do?')).toEqual({ ok: false, reason: 'pii' });
+  it('refuses a named person in either case', () => {
+    expect(planQuestion('What did Claire Collins do?')).toEqual({ ok: false, reason: 'pii' });
+    expect(planQuestion('what did claire collins do?')).toEqual({ ok: false, reason: 'pii' });
   });
 });
 

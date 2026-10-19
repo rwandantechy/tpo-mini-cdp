@@ -18,9 +18,9 @@ const EMAIL_IN_TEXT = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 const APP_USER_ID = /\bu_[0-9a-f]{6,}\b/i;
 const DEVICE_ID = /\bd_[0-9a-f]{4,}\b/i;
 const EVENT_ID = /\bevt_[0-9a-f-]{6,}\b/i;
-const PROPER_NAME = /\b[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}\b/g;
+const NAME_PAIR = /\b[a-z]{2,21}\s+[a-z]{2,21}\b/g;
 
-/** Title-case pairs that are product language, not people. */
+/** Words that show up in questions and headings, not people's names. */
 const NAME_STOPWORDS = new Set([
   'how',
   'what',
@@ -98,10 +98,118 @@ const NAME_STOPWORDS = new Set([
   'retention',
   'organic',
   'visits',
+  'many',
+  'went',
+  'days',
+  'list',
+  'build',
+  'hit',
+  'them',
+  'they',
+  'their',
+  'still',
+  'subscribed',
+  'are',
+  'was',
+  'were',
+  'been',
+  'have',
+  'has',
+  'had',
+  'not',
+  'opened',
+  'open',
+  'for',
+  'and',
+  'with',
+  'from',
+  'into',
+  'about',
+  'than',
+  'more',
+  'less',
+  'each',
+  'per',
+  'ago',
+  'since',
+  'just',
+  'only',
+  'also',
+  'all',
+  'out',
+  'get',
+  'got',
+  'did',
+  'does',
+  'can',
+  'show',
+  'give',
+  'make',
+  'save',
+  'create',
+  'break',
+  'down',
+  'explain',
+  'json',
+  'numbers',
+  'number',
+  'invent',
+  'use',
+  'markdown',
+  'allowed',
+  'never',
+  'write',
+  'email',
+  'mention',
+  'person',
+  'people',
+  'filters',
+  'filter',
+  'results',
+  'result',
+  'already',
+  'counted',
+  'counts',
+  'tool',
+  'object',
+  'those',
+  'these',
+  'there',
+  'then',
+  'that',
+  'this',
+  'in',
+  'on',
+  'at',
+  'to',
+  'by',
+  'or',
+  'an',
+  'be',
+  'is',
+  'it',
+  'as',
+  'if',
+  'no',
+  'so',
+  'up',
+  'we',
+  'us',
+  'done',
+  'lately',
+  'tell',
+  'me',
+  'please',
+  'look',
+  'ask',
+  'try',
+  'one',
+  'of',
+  'do',
 ]);
 
 export interface PiiOptions {
-  /** Title-case First Last. On for questions; off for model answers so headings pass. */
+  /** Two-word names. On by default, including model answers. */
   names?: boolean;
 }
 
@@ -111,11 +219,11 @@ function hasEmail(text: string): boolean {
 }
 
 function hasPersonName(text: string): boolean {
-  const matches = text.match(PROPER_NAME) ?? [];
+  const matches = text.toLowerCase().match(NAME_PAIR) ?? [];
   return matches.some((pair) => {
     const [first, last] = pair.split(/\s+/);
     if (!first || !last) return false;
-    return !NAME_STOPWORDS.has(first.toLowerCase()) && !NAME_STOPWORDS.has(last.toLowerCase());
+    return !NAME_STOPWORDS.has(first) && !NAME_STOPWORDS.has(last);
   });
 }
 

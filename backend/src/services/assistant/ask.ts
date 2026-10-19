@@ -1,19 +1,11 @@
 import type { Content } from '@google/genai';
 
-import {
-  ASSISTANT_ANSWER_MAX_LENGTH,
-  ASSISTANT_DEADLINE_MS,
-  ASSISTANT_HISTORY_TURNS,
-  ASSISTANT_QUESTION_MAX_LENGTH,
-  ASSISTANT_TOOL_ROUNDS,
-  COLD_WINDOW_DAYS,
-  REFERENCE_DATE,
-} from '../../config/constants.js';
-import { daysBeforeReference } from '../../lib/dates.js';
+import { ASSISTANT_ANSWER_MAX_LENGTH, ASSISTANT_DEADLINE_MS } from '../../config/constants.js';
 import { assertNoPii, containsPii, PiiBlockedError } from '../../lib/pii.js';
 import { log } from '../../lib/logger.js';
-import { functionResponseParts, type GeminiClient } from './gemini.js';
-import { runTool, type ToolSegment, type ToolTable } from './tools.js';
+import type { GeminiClient } from './gemini.js';
+import { planQuestion, UNSUPPORTED_ANSWER, type HistoryTurn } from './plan.js';
+import { runTool, type ToolSegment, type ToolSuccess, type ToolTable } from './tools.js';
 
 export const PII_REFUSAL =
   "I can't look up a specific person. Ask about totals, sources, pages, or a segment.";
@@ -25,10 +17,7 @@ export interface AssistantAnswer {
   segment?: ToolSegment;
 }
 
-export interface HistoryTurn {
-  question: string;
-  answer: string;
-}
+export type { HistoryTurn };
 
 export interface AskOptions {
   gemini: GeminiClient;
@@ -37,17 +26,58 @@ export interface AskOptions {
   history?: HistoryTurn[];
 }
 
+const FILTER_KEYS = [
+  'acquisitionSource',
+  'status',
+  'signupFrom',
+  'signupTo',
+  'lastOpen',
+  'hasWebsite',
+  'hasApp',
+] as const;
+
+const ROW_KEYS = [
+  'source',
+  'total',
+  'active',
+  'unsubscribed',
+  'unsubRate',
+  'share',
+  'page',
+  'views',
+  'readers',
+  'status',
+  'lastOpen',
+  'signupFrom',
+  'signupTo',
+  'cutoff',
+] as const;
+
+const SNAPSHOT_KEYS = [
+  'referenceDate',
+  'coldWindowDays',
+  'subscribers',
+  'active',
+  'unsubscribed',
+  'neverOpened',
+  'coldSinceCutoff',
+  'instagramCold',
+  'instagramColdActive',
+  'appAccounts',
+  'appLinked',
+  'appEvents',
+  'webVisitors',
+  'webIdentified',
+  'pageviews',
+] as const;
+
 export function systemInstruction(): string {
   return [
-    'You are Growth’s analyst for this newsletter, website, and app.',
-    `Treat ${REFERENCE_DATE} as today.`,
-    `Cold means no open since ${daysBeforeReference(COLD_WINDOW_DAYS)} — last newsletter open, not signup date.`,
-    'Acquisition sources: Direct, Facebook, Google, Instagram, Podcast, Referral, X.',
-    'Use tools for every number. Interpret, compare, and recommend. Do not invent counts.',
-    'You only see aggregates. Never emails, names, or raw people.',
-    'If they name a person, refuse. Pronouns keep the last source or filter in this conversation.',
-    'Save a list only when they ask to save or build one. The app will show the people.',
-    'You may use markdown.',
+    'Explain the JSON counts.',
+    'Use only those numbers. Do not invent counts.',
+    'Cold is last open, not signup date.',
+    'Never write an email or a person.',
+    'Markdown is allowed.',
   ].join(' ');
 }
 
@@ -55,27 +85,85 @@ export function plainAnswer(text: string): string {
   return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, ASSISTANT_ANSWER_MAX_LENGTH);
 }
 
-/** The exact user text that would be sent to the model. Empty means we do not call it. */
-export function modelUserText(question: string): { ok: true; text: string } | { ok: false; reason: 'pii' | 'empty' } {
-  const text = question.trim();
-  if (text.length === 0) return { ok: false, reason: 'empty' };
-  if (containsPii(text)) return { ok: false, reason: 'pii' };
-  return { ok: true, text: text.slice(0, ASSISTANT_QUESTION_MAX_LENGTH) };
+/** The JSON object that would be sent as the only user turn. */
+export function narrationSummary(tool: string, result: ToolSuccess): Record<string, unknown> {
+  const summary: Record<string, unknown> = { tool };
+
+  if (tool === 'get_snapshot') {
+    for (const key of SNAPSHOT_KEYS) {
+      const value = result.data[key];
+      if (typeof value === 'number' || typeof value === 'string') summary[key] = value;
+    }
+  } else {
+    const filters: Record<string, unknown> = {};
+    for (const key of FILTER_KEYS) {
+      const value = result.data[key];
+      if (typeof value === 'string' || typeof value === 'boolean') filters[key] = value;
+    }
+    if (Object.keys(filters).length > 0) summary.filters = filters;
+    if (typeof result.data.total === 'number') summary.total = result.data.total;
+    if (typeof result.data.cutoffDate === 'string') summary.cutoffDate = result.data.cutoffDate;
+  }
+
+  if (result.table) {
+    summary.rows = result.table.rows.map((row) => {
+      const clean: Record<string, string | number> = {};
+      for (const key of ROW_KEYS) {
+        const value = row[key];
+        if (typeof value === 'string' || typeof value === 'number') clean[key] = value;
+      }
+      return clean;
+    });
+  }
+
+  return summary;
+}
+
+export function narrationContents(summary: Record<string, unknown>): Content[] {
+  return [{ role: 'user', parts: [{ text: JSON.stringify(summary) }] }];
 }
 
 export async function ask(question: string, options: AskOptions): Promise<AssistantAnswer> {
-  const gated = modelUserText(question);
-  if (!gated.ok) {
-    log.info('assistant question blocked', { reason: gated.reason });
+  const plan = planQuestion(question, options.history ?? []);
+  if (!plan.ok) {
+    log.info('assistant question blocked', { reason: plan.reason });
     return {
-      answer: gated.reason === 'pii' ? PII_REFUSAL : 'Ask a question about totals, pages, or segments.',
-      blocked: gated.reason === 'pii',
+      answer: plan.reason === 'pii' ? PII_REFUSAL : plan.reason === 'empty' ? 'Ask a question about totals, pages, or segments.' : UNSUPPORTED_ANSWER,
+      blocked: plan.reason === 'pii',
       tables: [],
     };
   }
 
   try {
-    return await runAsk(gated.text, options);
+    const result = await runTool(plan.tool, plan.args, options.createdBy);
+    if (!result.ok) return { answer: 'I could not answer that from the data.', blocked: false, tables: [] };
+
+    const summary = narrationSummary(plan.tool, result);
+    const contents = narrationContents(summary);
+    assertNoPii(summary);
+    assertNoPii(contents);
+    assertNoPii(systemInstruction());
+
+    const turn = await options.gemini.generate({
+      model: options.model,
+      systemInstruction: systemInstruction(),
+      contents,
+      includeTools: false,
+      timeoutMs: ASSISTANT_DEADLINE_MS,
+    });
+
+    const answer = plainAnswer(turn.text || '');
+    if (!answer || containsPii(answer)) {
+      log.info('assistant answer blocked', { reason: answer ? 'pii' : 'empty' });
+      return { answer: PII_REFUSAL, blocked: true, tables: [] };
+    }
+
+    return {
+      answer,
+      blocked: false,
+      tables: result.table ? [result.table] : [],
+      segment: result.segment,
+    };
   } catch (error) {
     if (error instanceof PiiBlockedError) {
       log.info('assistant payload blocked', { kinds: error.kinds });
@@ -83,88 +171,4 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
     }
     throw error;
   }
-}
-
-async function runAsk(text: string, options: AskOptions): Promise<AssistantAnswer> {
-  assertNoPii(text);
-
-  const contents: Content[] = [
-    ...historyContents(options.history ?? []),
-    { role: 'user', parts: [{ text }] },
-  ];
-  const tables: ToolTable[] = [];
-  let segment: ToolSegment | undefined;
-  const deadline = Date.now() + ASSISTANT_DEADLINE_MS;
-
-  for (let round = 0; round < ASSISTANT_TOOL_ROUNDS; round += 1) {
-    const remaining = deadline - Date.now();
-    if (remaining < 1_500) break;
-
-    assertNoPii(contents);
-
-    const turn = await options.gemini.generate({
-      model: options.model,
-      systemInstruction: systemInstruction(),
-      contents,
-      timeoutMs: remaining,
-    });
-
-    if (turn.functionCalls && turn.functionCalls.length > 0) {
-      if (turn.modelContent) contents.push(turn.modelContent);
-
-      const payloads: Array<Record<string, unknown>> = [];
-      for (const call of turn.functionCalls) {
-        const result = await runTool(call.name ?? '', call.args, options.createdBy);
-        if (result.ok) {
-          if (result.table) rememberTable(tables, result.table);
-          if (result.segment) segment = result.segment;
-          payloads.push(result.data);
-        } else {
-          payloads.push({ error: result.error });
-        }
-      }
-
-      assertNoPii(payloads);
-      contents.push({ role: 'user', parts: functionResponseParts(turn.functionCalls, payloads) });
-      continue;
-    }
-
-    const answer = plainAnswer(turn.text || '') || 'I could not put that into words. Try asking another way.';
-    if (containsPii(answer, { names: false })) {
-      log.info('assistant answer blocked', { reason: 'pii' });
-      return { answer: PII_REFUSAL, blocked: true, tables: [] };
-    }
-
-    return { answer, blocked: false, tables, segment };
-  }
-
-  return {
-    answer: tables.length || segment ? 'Here is what I found.' : 'I could not finish that. Try a narrower question.',
-    blocked: false,
-    tables,
-    segment,
-  };
-}
-
-export function historyContents(history: HistoryTurn[]): Content[] {
-  const contents: Content[] = [];
-
-  for (const turn of history.slice(-ASSISTANT_HISTORY_TURNS)) {
-    const gated = modelUserText(turn.question);
-    if (!gated.ok) continue;
-    const answer = plainAnswer(turn.answer);
-    // Same name check as the question. Stopwords keep headings such as "Top Pages".
-    if (!answer || containsPii(answer)) continue;
-    contents.push({ role: 'user', parts: [{ text: gated.text }] });
-    contents.push({ role: 'model', parts: [{ text: answer }] });
-  }
-
-  assertNoPii(contents);
-  return contents;
-}
-
-function rememberTable(tables: ToolTable[], table: ToolTable): void {
-  const existing = tables.findIndex((item) => item.title === table.title);
-  if (existing >= 0) tables.splice(existing, 1);
-  tables.push(table);
 }
