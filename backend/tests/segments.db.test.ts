@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { INSTAGRAM_COLD_PRESET } from '../src/config/constants.js';
+import { randomUUID } from 'node:crypto';
+
+import { ENGAGED_PRESET, INSTAGRAM_COLD_PRESET } from '../src/config/constants.js';
 import { closePool } from '../src/lib/db.js';
-import { previewSegment } from '../src/services/segments.js';
+import { deleteSegment, previewSegment, saveSegment } from '../src/services/segments.js';
 import { hasDatabase } from './helpers/database.js';
 
 const describeDb = hasDatabase ? describe : describe.skip;
@@ -34,5 +36,19 @@ describeDb('previewSegment', () => {
     expect(first.results).toHaveLength(10);
     expect(second.results).toHaveLength(10);
     expect(second.results[0]?.id).not.toBe(first.results[0]?.id);
+  });
+});
+
+describeDb('saveSegment', () => {
+  it('replaces an existing name instead of stacking another chip', async () => {
+    const name = `test-${randomUUID()}`;
+    const first = await saveSegment(name, { ...INSTAGRAM_COLD_PRESET }, 'growth');
+    const second = await saveSegment(name.toUpperCase(), { ...ENGAGED_PRESET }, 'growth');
+
+    expect(second.id).toBe(first.id);
+    expect(second.definition).toMatchObject(ENGAGED_PRESET);
+
+    expect(await deleteSegment(first.id)).toBe(true);
+    expect(await deleteSegment(first.id)).toBe(false);
   });
 });

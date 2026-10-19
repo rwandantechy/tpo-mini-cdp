@@ -1,6 +1,26 @@
-import { query } from '../lib/db.js';
-import { COLD_WINDOW_DAYS } from '../config/constants.js';
+import {
+  COLD_WINDOW_DAYS,
+  ENGAGED_PRESET,
+  INSTAGRAM_COLD_PRESET,
+  OVERVIEW_PAGE_LIMIT,
+} from '../config/constants.js';
 import { daysBeforeReference, referenceDate } from '../lib/dates.js';
+import { query } from '../lib/db.js';
+import { countSegment } from './segments.js';
+
+export interface SourceMixRow {
+  source: string;
+  total: number;
+  active: number;
+  unsubscribed: number;
+  unsubRate: number;
+  share: number;
+}
+
+export interface PageViewRow {
+  page: string;
+  views: number;
+}
 
 export interface Overview {
   referenceDate: string;
@@ -23,6 +43,13 @@ export interface Overview {
     identified: number;
     anonymous: number;
     pageviews: number;
+  };
+  sources: SourceMixRow[];
+  pages: PageViewRow[];
+  lists: {
+    instagramCold: number;
+    instagramColdActive: number;
+    engaged: number;
   };
   lastImports: ImportRunSummary[];
 }
@@ -56,24 +83,32 @@ interface CountsRow {
 export async function getOverview(): Promise<Overview> {
   const cutoff = daysBeforeReference(COLD_WINDOW_DAYS);
 
-  const rows = await query<CountsRow>(
-    `
-    select
-      (select count(*) from subscribers)                                        as subscribers,
-      (select count(*) from subscribers where status = 'active')                as active,
-      (select count(*) from subscribers where status = 'unsubscribed')          as unsubscribed,
-      (select count(*) from subscribers where last_open_date is null)           as never_opened,
-      (select count(*) from subscribers
-        where last_open_date is null or last_open_date < $1::date)              as cold,
-      (select count(*) from app_users)                                          as app_accounts,
-      (select count(*) from app_users where subscriber_id is not null)           as app_linked,
-      (select count(*) from app_events)                                          as app_events,
-      (select count(*) from web_visitors)                                        as visitors,
-      (select count(*) from web_visitors where subscriber_id is not null)        as visitors_identified,
-      (select count(*) from web_events)                                          as pageviews
-    `,
-    [cutoff],
-  );
+  const [rows, sources, pages, lastImports, instagramCold, instagramColdActive, engaged] = await Promise.all([
+    query<CountsRow>(
+      `
+      select
+        (select count(*) from subscribers)                                        as subscribers,
+        (select count(*) from subscribers where status = 'active')                as active,
+        (select count(*) from subscribers where status = 'unsubscribed')          as unsubscribed,
+        (select count(*) from subscribers where last_open_date is null)           as never_opened,
+        (select count(*) from subscribers
+          where last_open_date is null or last_open_date < $1::date)              as cold,
+        (select count(*) from app_users)                                          as app_accounts,
+        (select count(*) from app_users where subscriber_id is not null)           as app_linked,
+        (select count(*) from app_events)                                          as app_events,
+        (select count(*) from web_visitors)                                        as visitors,
+        (select count(*) from web_visitors where subscriber_id is not null)        as visitors_identified,
+        (select count(*) from web_events)                                          as pageviews
+      `,
+      [cutoff],
+    ),
+    loadSourceMix(),
+    loadTopPages(OVERVIEW_PAGE_LIMIT),
+    getLastImports(),
+    countSegment({ ...INSTAGRAM_COLD_PRESET }),
+    countSegment({ ...INSTAGRAM_COLD_PRESET, status: 'active' }),
+    countSegment({ ...ENGAGED_PRESET }),
+  ]);
 
   const row = rows[0];
   const number = (value: string | undefined): number => Number(value ?? 0);
@@ -105,8 +140,70 @@ export async function getOverview(): Promise<Overview> {
       anonymous: visitors - identified,
       pageviews: number(row?.pageviews),
     },
-    lastImports: await getLastImports(),
+    sources,
+    pages,
+    lists: {
+      instagramCold: instagramCold.total,
+      instagramColdActive: instagramColdActive.total,
+      engaged: engaged.total,
+    },
+    lastImports,
   };
+}
+
+export async function loadSourceMix(): Promise<SourceMixRow[]> {
+  const rows = await query<{ source: string | null; status: string; count: string }>(
+    `
+    select acquisition_source as source, status, count(*) as count
+    from subscribers
+    group by acquisition_source, status
+    order by count(*) desc, acquisition_source
+    `,
+  );
+
+  const bySource = new Map<string, { active: number; unsubscribed: number }>();
+  for (const row of rows) {
+    const source = row.source ?? '(none)';
+    const current = bySource.get(source) ?? { active: 0, unsubscribed: 0 };
+    if (row.status === 'unsubscribed') current.unsubscribed += Number(row.count);
+    else current.active += Number(row.count);
+    bySource.set(source, current);
+  }
+
+  const grouped = [...bySource.entries()].map(([source, counts]) => ({
+    source,
+    total: counts.active + counts.unsubscribed,
+    active: counts.active,
+    unsubscribed: counts.unsubscribed,
+  }));
+  grouped.sort((left, right) => right.total - left.total || left.source.localeCompare(right.source));
+  const all = grouped.reduce((sum, row) => sum + row.total, 0);
+
+  return grouped.map((row) => ({
+    ...row,
+    unsubRate: percent(row.unsubscribed, row.total),
+    share: percent(row.total, all),
+  }));
+}
+
+export async function loadTopPages(limit: number): Promise<PageViewRow[]> {
+  const rows = await query<{ page: string; views: string }>(
+    `
+    select page, count(*) as views
+    from web_events
+    group by page
+    order by count(*) desc, page
+    limit $1
+    `,
+    [limit],
+  );
+
+  return rows.map((row) => ({ page: row.page, views: Number(row.views) }));
+}
+
+function percent(part: number, whole: number): number {
+  if (whole <= 0) return 0;
+  return Math.round((part / whole) * 100);
 }
 
 interface ImportRunRow {

@@ -26,7 +26,7 @@ export function createApp(): Express {
 
   app.disable('x-powered-by');
 
-  if (env.TRUST_PROXY) app.set('trust proxy', 1);
+  if (env.TRUST_PROXY || process.env.VERCEL === '1') app.set('trust proxy', 1);
 
   app.use(
     helmet({
@@ -39,7 +39,7 @@ export function createApp(): Express {
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || allowed.includes(origin)) callback(null, true);
+        if (!origin || allowed.includes(origin) || deploymentOrigins().includes(origin)) callback(null, true);
         else callback(forbidden(`Origin ${origin} is not allowed.`));
       },
       credentials: true,
@@ -77,4 +77,11 @@ export function createApp(): Express {
   app.use(errorHandler);
 
   return app;
+}
+
+/** Current Vercel deployment, so preview URLs work without editing CORS_ORIGINS. */
+function deploymentOrigins(): string[] {
+  return [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+    .filter((host): host is string => typeof host === 'string' && host.length > 0 && !host.includes('://'))
+    .map((host) => `https://${host}`);
 }

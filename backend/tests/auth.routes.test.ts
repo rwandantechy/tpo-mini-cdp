@@ -147,6 +147,23 @@ describe('CORS', () => {
     expect(response.status).toBe(403);
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
   });
+
+  it('allows the Vercel deployment that is serving this build', async () => {
+    const previous = process.env.VERCEL_URL;
+    process.env.VERCEL_URL = 'mini-cdp-git-preview.vercel.app';
+
+    try {
+      const app = await buildTestApp();
+      const origin = 'https://mini-cdp-git-preview.vercel.app';
+      const response = await request(app).get('/api/auth/session').set('Origin', origin);
+
+      expect(response.headers['access-control-allow-origin']).toBe(origin);
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+    } finally {
+      if (previous === undefined) delete process.env.VERCEL_URL;
+      else process.env.VERCEL_URL = previous;
+    }
+  });
 });
 
 describe('unknown routes', () => {
