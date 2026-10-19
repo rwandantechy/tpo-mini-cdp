@@ -14,7 +14,7 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
-
+// 
 const server = createApp().listen(env.PORT, () => {
   log.info('api listening', { port: env.PORT, env: env.NODE_ENV, model: env.GEMINI_MODEL });
 });

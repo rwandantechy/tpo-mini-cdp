@@ -1,3 +1,4 @@
+
 /** Map a question onto a tool call. The question text stays here. */
 
 import {
@@ -31,23 +32,36 @@ export type PlanTool =
 
 export type AssistantPlan =
   | { ok: false; reason: 'pii' | 'unsupported' | 'empty' }
-  | { ok: true; tool: PlanTool; args: Record<string, unknown>; definition?: SegmentDefinition };
+  | {
+      ok: true;
+      tool: PlanTool;
+      args: Record<string, unknown>;
+      definition?: SegmentDefinition;
+    };
 
-export function planQuestion(question: string, history: readonly HistoryTurn[] = []): AssistantPlan {
+export function planQuestion(
+  question: string,
+  history: readonly HistoryTurn[] = [],
+): AssistantPlan {
   const text = question.trim();
+
   if (text.length === 0) return { ok: false, reason: 'empty' };
   if (findPii(text).length > 0) return { ok: false, reason: 'pii' };
 
   const planned = classify(text, priorDefinition(history));
   if (!planned) return { ok: false, reason: 'unsupported' };
+
   return planned;
 }
 
-function priorDefinition(history: readonly HistoryTurn[]): SegmentDefinition | undefined {
+function priorDefinition(
+  history: readonly HistoryTurn[],
+): SegmentDefinition | undefined {
   let filters: SegmentDefinition | undefined;
 
   for (const turn of history) {
     if (findPii(turn.question).length > 0) continue;
+
     const planned = classify(turn.question, filters);
     if (planned?.ok && planned.definition) filters = planned.definition;
   }
@@ -55,18 +69,29 @@ function priorDefinition(history: readonly HistoryTurn[]): SegmentDefinition | u
   return filters;
 }
 
-function classify(question: string, prior: SegmentDefinition | undefined): AssistantPlan | null {
+function classify(
+  question: string,
+  prior: SegmentDefinition | undefined,
+): AssistantPlan | null {
   const text = question.toLowerCase();
 
   if (isFirstPages(text)) {
     return { ok: true, tool: 'first_pages_for_new_subscribers', args: {} };
   }
 
-  if (isBreakdown(text)) return { ok: true, tool: 'subscriber_breakdown', args: {} };
-  if (isTopPages(text)) return { ok: true, tool: 'top_pages', args: {} };
+  if (isBreakdown(text)) {
+    return { ok: true, tool: 'subscriber_breakdown', args: {} };
+  }
+
+  if (isTopPages(text)) {
+    return { ok: true, tool: 'top_pages', args: {} };
+  }
 
   const definition = definitionFrom(text, prior);
-  if (isSnapshot(text, definition)) return { ok: true, tool: 'get_snapshot', args: {} };
+
+  if (isSnapshot(text, definition)) {
+    return { ok: true, tool: 'get_snapshot', args: {} };
+  }
 
   if (!hasFilter(definition)) return null;
 
@@ -79,7 +104,12 @@ function classify(question: string, prior: SegmentDefinition | undefined): Assis
     };
   }
 
-  return { ok: true, tool: 'count_segment', args: { ...definition }, definition };
+  return {
+    ok: true,
+    tool: 'count_segment',
+    args: { ...definition },
+    definition,
+  };
 }
 
 function isFirstPages(text: string): boolean {
@@ -91,32 +121,59 @@ function isTopPages(text: string): boolean {
 }
 
 function isBreakdown(text: string): boolean {
-  return /\bbreak ?down\b/.test(text) || /\bby source\b/.test(text) || /\bunsubscribe rate\b/.test(text) || /\bsource mix\b/.test(text);
+  return (
+    /\bbreak ?down\b/.test(text) ||
+    /\bby source\b/.test(text) ||
+    /\bunsubscribe rate\b/.test(text) ||
+    /\bsource mix\b/.test(text)
+  );
 }
 
-function isSnapshot(text: string, definition: SegmentDefinition): boolean {
+function isSnapshot(
+  text: string,
+  definition: SegmentDefinition,
+): boolean {
   if (hasFilter(definition)) return false;
-  return /\b(overview|snapshot|headline)\b/.test(text) || (/\bhow many\b/.test(text) && /\bsubscribers\b/.test(text));
+
+  return (
+    /\b(overview|snapshot|headline)\b/.test(text) ||
+    (/\bhow many\b/.test(text) && /\bsubscribers\b/.test(text))
+  );
 }
 
 function isSave(text: string): boolean {
-  return /\b(save|build|create)\b/.test(text) && /\b(list|segment)\b/.test(text);
+  return (
+    /\b(save|build|create)\b/.test(text) &&
+    /\b(list|segment)\b/.test(text)
+  );
 }
 
-function definitionFrom(text: string, prior: SegmentDefinition | undefined): SegmentDefinition {
+function definitionFrom(
+  text: string,
+  prior: SegmentDefinition | undefined,
+): SegmentDefinition {
   const definition: SegmentDefinition = {};
 
-  if (/\bengaged\b/.test(text)) Object.assign(definition, ENGAGED_PRESET);
+  if (/\bengaged\b/.test(text)) {
+    Object.assign(definition, ENGAGED_PRESET);
+  }
 
   const source = sourceIn(text);
   if (source) definition.acquisitionSource = source;
 
-  if (/\bunsubscrib/.test(text)) definition.status = 'unsubscribed';
-  else if (/\bactive\b/.test(text) || /\bstill subscribed\b/.test(text) || /\bsubscribed\b/.test(text)) {
+  if (/\bunsubscrib/.test(text)) {
+    definition.status = 'unsubscribed';
+  } else if (
+    /\bactive\b/.test(text) ||
+    /\bstill subscribed\b/.test(text) ||
+    /\bsubscribed\b/.test(text)
+  ) {
     definition.status = 'active';
   }
 
-  if (/\bcold\b|have not opened|haven't opened|havent opened|no open|not opened|inactive/.test(text)) {
+  if (
+    /\bcold\b|have not opened|haven't opened|havent opened|no open|not opened|inactive/.test(text)
+  ) {
     definition.lastOpen = 'cold';
   } else if (/\bnever opened\b|\bnever open\b/.test(text)) {
     definition.lastOpen = 'never';
@@ -138,8 +195,14 @@ function definitionFrom(text: string, prior: SegmentDefinition | undefined): Seg
     definition.lastOpen ??= prior.lastOpen;
     definition.signupFrom ??= prior.signupFrom;
     definition.signupTo ??= prior.signupTo;
-    if (definition.hasWebsite === undefined) definition.hasWebsite = prior.hasWebsite;
-    if (definition.hasApp === undefined) definition.hasApp = prior.hasApp;
+
+    if (definition.hasWebsite === undefined) {
+      definition.hasWebsite = prior.hasWebsite;
+    }
+
+    if (definition.hasApp === undefined) {
+      definition.hasApp = prior.hasApp;
+    }
   }
 
   return definition;
@@ -147,13 +210,16 @@ function definitionFrom(text: string, prior: SegmentDefinition | undefined): Seg
 
 function wantsSignupWindow(text: string): boolean {
   if (/\bpages?\b/.test(text)) return false;
+
   return /\b(signed up|sign-?up date|signups since|joined)\b/.test(text);
 }
 
 function sourceIn(text: string): AcquisitionSource | undefined {
   if (/\btwitter\b/.test(text)) return 'X';
 
-  return ACQUISITION_SOURCES.find((source) => new RegExp(`\\b${source}\\b`, 'i').test(text));
+  return ACQUISITION_SOURCES.find((source) =>
+    new RegExp(`\\b${source}\\b`, 'i').test(text),
+  );
 }
 
 function hasFilter(definition: SegmentDefinition): boolean {
@@ -171,11 +237,20 @@ function segmentName(definition: SegmentDefinition): string {
     return ENGAGED_SEGMENT_NAME;
   }
 
-  if (definition.acquisitionSource === 'Instagram' && definition.lastOpen === 'cold' && !definition.signupFrom && !definition.status) {
+  if (
+    definition.acquisitionSource === 'Instagram' &&
+    definition.lastOpen === 'cold' &&
+    !definition.signupFrom &&
+    !definition.status
+  ) {
     return INSTAGRAM_COLD_SEGMENT_NAME;
   }
 
-  return [definition.acquisitionSource, definition.status, definition.lastOpen === 'cold' ? 'cold' : undefined]
+  return [
+    definition.acquisitionSource,
+    definition.status,
+    definition.lastOpen === 'cold' ? 'cold' : undefined,
+  ]
     .filter(Boolean)
     .join(', ');
 }

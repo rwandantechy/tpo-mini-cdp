@@ -1,4 +1,8 @@
 // src/app.ts
+
+
+
+
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
@@ -23,6 +27,7 @@ var ACQUISITION_SOURCES = [
   "Referral",
   "X"
 ];
+// constants for the app 
 var SUBSCRIBER_STATUSES = ["active", "unsubscribed"];
 var DEFAULT_PORT = 4e3;
 var DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";

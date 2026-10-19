@@ -1,10 +1,11 @@
+
 import type { Content } from '@google/genai';
 
 import { ASSISTANT_ANSWER_MAX_LENGTH, ASSISTANT_DEADLINE_MS } from '../../config/constants.js';
 import { AppError } from '../../lib/errors.js';
 import { assertNoPii, containsPii, PiiBlockedError } from '../../lib/pii.js';
 import { log } from '../../lib/logger.js';
-import type { GeminiClient } from './gemini.js';
+import type { GeminiClient } from './llm.js';
 import { planQuestion, UNSUPPORTED_ANSWER, type HistoryTurn } from './plan.js';
 import { runTool, type ToolSegment, type ToolSuccess, type ToolTable } from './tools.js';
 
@@ -27,6 +28,7 @@ export interface AskOptions {
   history?: HistoryTurn[];
 }
 
+// Only these fields can be included in the summary sent to Gemini.
 const FILTER_KEYS = [
   'acquisitionSource',
   'status',
@@ -86,7 +88,7 @@ export function plainAnswer(text: string): string {
   return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, ASSISTANT_ANSWER_MAX_LENGTH);
 }
 
-/** The JSON object that would be sent as the only user turn. */
+// Build a summary using approved fields instead of forwarding raw data.
 export function narrationSummary(tool: string, result: ToolSuccess): Record<string, unknown> {
   const summary: Record<string, unknown> = { tool };
 
@@ -120,6 +122,7 @@ export function narrationSummary(tool: string, result: ToolSuccess): Record<stri
   return summary;
 }
 
+// Gemini receives the summary as JSON, not the original question.
 export function narrationContents(summary: Record<string, unknown>): Content[] {
   return [{ role: 'user', parts: [{ text: JSON.stringify(summary) }] }];
 }
@@ -130,6 +133,7 @@ function countedSentence(summary: Record<string, unknown>): string {
 }
 
 export async function ask(question: string, options: AskOptions): Promise<AssistantAnswer> {
+  // Plan and validate the question locally before accessing data or Gemini.
   const plan = planQuestion(question, options.history ?? []);
   if (!plan.ok) {
     log.info('assistant question blocked', { reason: plan.reason });
@@ -146,12 +150,15 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
 
     const summary = narrationSummary(plan.tool, result);
     const contents = narrationContents(summary);
+
+    // Check the outgoing payload for personal information.
     assertNoPii(summary);
     assertNoPii(contents);
     assertNoPii(systemInstruction());
 
     let turn;
     try {
+      // Gemini explains the results without calling additional tools.
       turn = await options.gemini.generate({
         model: options.model,
         systemInstruction: systemInstruction(),
@@ -162,6 +169,8 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       log.warn('assistant narration failed', { error: error.message });
+
+      // Keep the verified results available if Gemini fails.
       return {
         answer: countedSentence(summary),
         blocked: false,
@@ -170,6 +179,7 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
       };
     }
 
+    // Check the generated answer before returning it to the client.
     const answer = plainAnswer(turn.text || '');
     if (!answer || containsPii(answer)) {
       log.info('assistant answer blocked', { reason: answer ? 'pii' : 'empty' });

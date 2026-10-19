@@ -1,3 +1,4 @@
+
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 
@@ -5,14 +6,23 @@ import { AppError } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
 
 export const notFoundHandler: RequestHandler = (req, res) => {
-  res.status(404).json({ error: { code: 'not_found', message: `No route for ${req.method} ${req.path}.` } });
+  res.status(404).json({
+    error: {
+      code: 'not_found',
+      message: `No route for ${req.method} ${req.path}.`,
+    },
+  });
 };
 
-/** Client-safe errors pass through. Everything else is logged and answered generically. */
+// Return known errors with safe messages. Log unexpected errors without exposing details.
 export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   if (error instanceof AppError) {
     res.status(error.status).json({
-      error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) },
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
     });
     return;
   }
@@ -31,8 +41,17 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
     return;
   }
 
-  if (typeof error === 'object' && error !== null && (error as { type?: string }).type === 'entity.too.large') {
-    res.status(413).json({ error: { code: 'payload_too_large', message: 'That request body is too large.' } });
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { type?: string }).type === 'entity.too.large'
+  ) {
+    res.status(413).json({
+      error: {
+        code: 'payload_too_large',
+        message: 'That request body is too large.',
+      },
+    });
     return;
   }
 
@@ -44,6 +63,9 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   });
 
   res.status(500).json({
-    error: { code: 'internal_error', message: 'Something broke on our side. Please try again.' },
+    error: {
+      code: 'internal_error',
+      message: 'Something broke on our side. Please try again.',
+    },
   });
 };

@@ -1,10 +1,13 @@
-/** Express app, separate from listen() so tests can build it without a port. */
+/**
+ * After the app is created, it is used to listen to the port and start the server.
+ * 
+ */
 
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
-
+import morganLogger from 'morgan';
 import { JSON_BODY_LIMIT, WEBHOOK_MOUNT } from './config/constants.js';
 import { corsOrigins, getServerEnv } from './config/env.js';
 import { forbidden } from './lib/errors.js';
@@ -24,17 +27,15 @@ import { webhooksRouter } from './routes/webhooks.js';
 export function createApp(): Express {
   const env = getServerEnv();
   const app = express();
+  app.use(morganLogger(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+// Disable the X-Powered-By header.
+app.disable("x-powered-by");
 
-  app.disable('x-powered-by');
+// Trust the reverse proxy when configured or running on Vercel.
+if (env.TRUST_PROXY || process.env.VERCEL === "1") {
+  app.set("trust proxy", 1);
+}
 
-  if (env.TRUST_PROXY || process.env.VERCEL === '1') app.set('trust proxy', 1);
-
-  app.use(
-    helmet({
-      contentSecurityPolicy: false,
-      crossOriginResourcePolicy: { policy: 'cross-origin' },
-    }),
-  );
 
   const allowed = corsOrigins(env);
   app.use(
@@ -47,11 +48,11 @@ export function createApp(): Express {
       methods: ['GET', 'POST', 'DELETE'],
     }),
   );
-
+// Parse cookies.
   app.use(cookieParser());
-
+// Create the rate limiters.
   const limiters = createLimiters();
-
+// Use the health router.
   app.use('/api/health', limiters.api, healthRouter());
   app.use('/api/auth', limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
 
@@ -65,7 +66,7 @@ export function createApp(): Express {
     express.json({ limit: JSON_BODY_LIMIT }),
     assistantRouter(limiters),
   );
-
+// Use the webhooks router. - this is used to handle the webhooks from the app.
   app.use(
     WEBHOOK_MOUNT,
     limiters.webhook,
@@ -74,15 +75,17 @@ export function createApp(): Express {
     webhooksRouter(),
   );
 
+// Use the not found handler.
   app.use(notFoundHandler);
+// Use the error handler.
   app.use(errorHandler);
 
   return app;
 }
 
 /**
- * Default export bundled to `app.mjs` on Vercel. A `.js` build is loaded as
- * CommonJS and crashes on these imports.
+ * To address the issue of CommonJS and crashes on these imports.
+ * The default export is bundled to `app.mjs` on Vercel. A `.js` build is loaded as CommonJS and crashes on these imports.
  */
 let vercelApp: Express | undefined;
 
@@ -102,7 +105,7 @@ vercelEntry.use((req: Request, res: Response, next: NextFunction) => {
 
 export default vercelEntry;
 
-/** Deployment host, branch alias, and production host. Vercel omits the scheme. */
+/** This isn for the deployment origins, it is for the origins that are allowed to access the API. */
 function deploymentOrigins(): string[] {
   return [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
     .filter((host): host is string => typeof host === 'string' && host.length > 0 && !host.includes('://'))

@@ -1,13 +1,16 @@
+
 import { ASSISTANT_TABLE_LIMIT, COLD_WINDOW_DAYS } from '../../config/constants.js';
 import { daysBeforeReference } from '../../lib/dates.js';
 import { query } from '../../lib/db.js';
 import { getOverview, loadSourceMix, loadTopPages } from '../overview.js';
 
+// Aggregate analytics for the AI assistant. No individual subscriber data.
 export interface AggregateTable {
   title: string;
   rows: Array<Record<string, string | number>>;
 }
 
+// Reuse dashboard metrics to keep the assistant's numbers consistent.
 export async function snapshotCounts(): Promise<Record<string, number | string>> {
   const overview = await getOverview();
 
@@ -30,6 +33,7 @@ export async function snapshotCounts(): Promise<Record<string, number | string>>
   };
 }
 
+// Subscriber totals and percentages grouped by acquisition source.
 export async function subscriberBreakdown(): Promise<AggregateTable> {
   const rows = await loadSourceMix();
 
@@ -46,6 +50,7 @@ export async function subscriberBreakdown(): Promise<AggregateTable> {
   };
 }
 
+// Most visited website pages, using aggregate view counts.
 export async function topPages(limit = ASSISTANT_TABLE_LIMIT): Promise<AggregateTable> {
   const rows = await loadTopPages(limit);
 
@@ -55,7 +60,8 @@ export async function topPages(limit = ASSISTANT_TABLE_LIMIT): Promise<Aggregate
   };
 }
 
-/** First identified pageview after signup, grouped. No visitor or email fields. */
+// Find each subscriber's first identified pageview after signup.
+// Return page counts only, without subscriber IDs or emails.
 export async function firstPagesForNewSubscribers(
   days = COLD_WINDOW_DAYS,
   limit = ASSISTANT_TABLE_LIMIT,

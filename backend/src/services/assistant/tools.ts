@@ -1,3 +1,4 @@
+
 import { z } from 'zod';
 
 import {
@@ -53,38 +54,50 @@ const firstPagesSchema = z.object({
   limit: limitSchema,
 });
 
+// Filters the assistant can use when counting or saving subscribers.
 const SEGMENT_FILTER_PROPERTIES = {
   acquisitionSource: {
     type: 'string',
-    description: 'Exact source: Direct, Facebook, Google, Instagram, Podcast, Referral, or X.',
+    description: 'Use one of these sources: Direct, Facebook, Google, Instagram, Podcast, Referral, or X.',
   },
-  status: { type: 'string', description: 'active or unsubscribed' },
-  signupFrom: { type: 'string', description: 'Only if they asked about signup date. ISO date.' },
-  signupTo: { type: 'string', description: 'Only if they asked about signup date. ISO date.' },
+  status: {
+    type: 'string',
+    description: 'Subscriber status: active or unsubscribed.',
+  },
+  signupFrom: {
+    type: 'string',
+    description: 'Only use this when asking about signup dates. Format: YYYY-MM-DD.',
+  },
+  signupTo: {
+    type: 'string',
+    description: 'Only use this when asking about signup dates. Format: YYYY-MM-DD.',
+  },
   lastOpen: {
     type: 'string',
     enum: ['any', 'never', 'cold'],
-    description: 'cold = no open in 30 days. Independent of signup date.',
+    description: 'Cold means no newsletter open in the past 30 days. It is not based on signup date.',
   },
   hasWebsite: { type: 'boolean' },
   hasApp: { type: 'boolean' },
 } as const;
 
+// Tell Gemini what data each tool can provide.
 export const TOOL_DECLARATIONS = [
   {
     name: 'get_snapshot',
-    description: 'Headline counts for subscribers, website, and app. Includes Instagram cold (last open, not signup date).',
+    description:
+      'Overall subscriber, website, and app counts. Also includes Instagram subscribers who have not opened recently.',
     parametersJsonSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'subscriber_breakdown',
     description:
-      'One row per acquisition source with total, active, unsubscribed, unsubscribe rate, and share of all subscribers, largest first.',
+      'Show subscribers by acquisition source, including active and unsubscribed counts, unsubscribe rates, and share of the total. Largest sources come first.',
     parametersJsonSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'top_pages',
-    description: 'Most viewed website pages, as counts only.',
+    description: 'Show the most visited website pages and their view counts.',
     parametersJsonSchema: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: ASSISTANT_TABLE_LIMIT } },
@@ -94,7 +107,7 @@ export const TOOL_DECLARATIONS = [
   {
     name: 'first_pages_for_new_subscribers',
     description:
-      'Which pages people hit first after signing up, as counts. days is how far back from the assessment date.',
+      'Count which pages subscribers visited first after signing up. The number of days is measured back from the assessment date.',
     parametersJsonSchema: {
       type: 'object',
       properties: {
@@ -107,7 +120,7 @@ export const TOOL_DECLARATIONS = [
   {
     name: 'count_segment',
     description:
-      'How many subscribers match a filter. lastOpen=cold is last newsletter open, not signup date. Returns a total, never a list of people.',
+      'Count subscribers who match the chosen filters. Cold refers to the last newsletter open, not signup date. Return the count, not individual subscribers.',
     parametersJsonSchema: {
       type: 'object',
       properties: SEGMENT_FILTER_PROPERTIES,
@@ -117,7 +130,7 @@ export const TOOL_DECLARATIONS = [
   {
     name: 'save_segment',
     description:
-      'Save a named segment so Growth can open the people in the app. Returns the size only, not emails.',
+      'Save a named group of subscribers so it can be viewed in the app. Return the group size without sharing email addresses.',
     parametersJsonSchema: {
       type: 'object',
       properties: {
@@ -143,9 +156,12 @@ export async function runTool(
 ): Promise<ToolResult> {
   try {
     const result = await execute(name, args ?? {}, createdBy);
+
+    // Check the results for personal information before returning them.
     assertNoPii(result.data);
     if (result.table) assertNoPii(result.table);
     if (result.segment) assertNoPii({ ...result.segment, id: undefined });
+
     return result;
   } catch (error) {
     if (error instanceof PiiBlockedError) throw error;
@@ -163,6 +179,7 @@ async function execute(
       const data = await snapshotCounts();
       return { ok: true, data };
     }
+
     case 'subscriber_breakdown': {
       const table = await subscriberBreakdown();
       return {
@@ -171,16 +188,19 @@ async function execute(
         table,
       };
     }
+
     case 'top_pages': {
       const { limit } = z.object({ limit: limitSchema }).parse(args);
       const table = await topPages(limit ?? ASSISTANT_TABLE_LIMIT);
       return { ok: true, data: { rows: table.rows }, table };
     }
+
     case 'first_pages_for_new_subscribers': {
       const { days, limit } = firstPagesSchema.parse(args);
       const table = await firstPagesForNewSubscribers(days ?? COLD_WINDOW_DAYS, limit ?? ASSISTANT_TABLE_LIMIT);
       return { ok: true, data: { rows: table.rows }, table };
     }
+
     case 'count_segment': {
       const definition = segmentDefinitionSchema.parse(normalizeFilters(args));
       const counted = await countSegment(definition);
@@ -190,10 +210,12 @@ async function execute(
         table: matchingTable(definition, counted),
       };
     }
+
     case 'save_segment': {
       const { name: segmentName, definition } = parseSave(args);
       return saveNamedSegment(segmentName, definition, createdBy);
     }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -204,9 +226,12 @@ async function saveNamedSegment(
   definition: SegmentDefinition,
   createdBy: string,
 ): Promise<ToolSuccess> {
+  // Don't allow personal information in saved segment names.
   if (containsPii(name)) throw new PiiBlockedError(findPii(name));
+
   const counted = await countSegment(definition);
   const saved = await saveSegment(name, definition, createdBy);
+
   return {
     ok: true,
     data: { name: saved.name, total: counted.total, cutoffDate: counted.cutoffDate, ...definition },
@@ -226,29 +251,36 @@ function parseSave(args: Record<string, unknown>): { name: string; definition: S
     nested && typeof nested === 'object' && !Array.isArray(nested)
       ? (nested as Record<string, unknown>)
       : args;
+
   return saveSchema.parse({ name: args.name, definition: normalizeFilters(raw) });
 }
 
+// Accept different capitalizations of source names and subscriber statuses.
 function normalizeFilters(args: Record<string, unknown>): Record<string, unknown> {
   const next = { ...args };
+
   if (typeof next.acquisitionSource === 'string') {
     const requested = next.acquisitionSource;
     const match = ACQUISITION_SOURCES.find((source) => source.toLowerCase() === requested.toLowerCase());
     if (match) next.acquisitionSource = match;
   }
+
   if (typeof next.status === 'string') {
     const requested = next.status;
     const match = SUBSCRIBER_STATUSES.find((status) => status.toLowerCase() === requested.toLowerCase());
     if (match) next.status = match;
   }
+
   return next;
 }
 
+// Show the matching count and filters without listing individual subscribers.
 function matchingTable(
   definition: SegmentDefinition,
   counted: { total: number; cutoffDate: string },
 ): ToolTable {
   const row: Record<string, string | number> = { total: counted.total };
+
   if (definition.acquisitionSource) row.source = definition.acquisitionSource;
   if (definition.status) row.status = definition.status;
   if (definition.lastOpen && definition.lastOpen !== 'any') row.lastOpen = definition.lastOpen;

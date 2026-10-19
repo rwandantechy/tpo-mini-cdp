@@ -10,7 +10,7 @@ import { getServerEnv } from '../config/env.js';
 import { serviceUnavailable } from '../lib/errors.js';
 import { ask, PII_REFUSAL } from '../services/assistant/ask.js';
 import { planQuestion, UNSUPPORTED_ANSWER } from '../services/assistant/plan.js';
-import { createGemini } from '../services/assistant/gemini.js';
+import { createGemini } from '../services/assistant/llm.js';
 import type { Limiters } from '../middleware/rateLimit.js';
 
 const bodySchema = z.object({
