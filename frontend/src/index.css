@@ -32,6 +32,10 @@
     @apply bg-surface-muted font-sans text-ink antialiased;
   }
 
+  #root {
+    min-height: 100dvh;
+  }
+
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-coral-deep;
   }

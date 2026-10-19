@@ -78,3 +78,59 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'error'; c
 export function Spinner({ label }: { label: string }) {
   return <p className="text-sm text-ink-soft">{label}</p>;
 }
+
+export function PageHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="mb-5">
+      <h1 className="text-lg font-semibold text-ink">{title}</h1>
+      {description ? <p className="mt-1 text-sm text-ink-soft">{description}</p> : null}
+    </div>
+  );
+}
+
+export function Badge({
+  tone = 'neutral',
+  children,
+}: {
+  tone?: 'ok' | 'muted' | 'neutral';
+  children: ReactNode;
+}) {
+  const styles =
+    tone === 'ok'
+      ? 'bg-positive/10 text-positive'
+      : tone === 'muted'
+        ? 'bg-surface-muted text-ink-soft'
+        : 'bg-blush text-ink';
+
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${styles}`}>{children}</span>;
+}
+
+export function Pager({
+  offset,
+  limit,
+  total,
+  busy = false,
+  onOffset,
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  busy?: boolean;
+  onOffset: (offset: number) => void;
+}) {
+  if (total === 0) return null;
+
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
+
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+      <Button variant="quiet" className="px-3 py-1.5" disabled={!hasPrev || busy} onClick={() => onOffset(Math.max(0, offset - limit))}>
+        Previous
+      </Button>
+      <Button variant="quiet" className="px-3 py-1.5" disabled={!hasNext || busy} onClick={() => onOffset(offset + limit)}>
+        Next
+      </Button>
+    </div>
+  );
+}

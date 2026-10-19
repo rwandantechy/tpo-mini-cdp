@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 
-import { Card, CardHeader, Notice, Spinner, Stat } from '../../components/ui.tsx';
+import { Card, CardHeader, Notice, PageHeader, Spinner, Stat } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
+import { formatDate } from '../../lib/format.ts';
 
 interface ImportRun {
   source: string;
@@ -50,7 +51,9 @@ export function Dashboard() {
   const { subscribers, app, web } = overview;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+      <PageHeader title="Overview" description={`Figures as of ${formatDate(overview.referenceDate)}.`} />
+
       <section>
         <h2 className="text-sm font-medium text-ink-soft">Subscribers</h2>
         <Card className="mt-2">
@@ -97,7 +100,8 @@ export function Dashboard() {
             title="What came in"
             hint="Rows we could not use are listed with the reason, rather than dropped quietly."
           />
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-160 text-sm">
             <thead className="bg-surface-muted text-ink-soft">
               <tr>
                 <th className="px-5 py-2">File</th>
@@ -130,6 +134,7 @@ export function Dashboard() {
               ) : null}
             </tbody>
           </table>
+          </div>
         </Card>
       </section>
     </div>
