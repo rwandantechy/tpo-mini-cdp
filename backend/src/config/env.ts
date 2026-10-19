@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 
-import { DEFAULT_GEMINI_MODEL, DEFAULT_PORT, SECRET_MIN_LENGTH } from './constants.js';
+import { DEFAULT_GEMINI_FALLBACK_MODEL, DEFAULT_GEMINI_MODEL, DEFAULT_PORT, SECRET_MIN_LENGTH } from './constants.js';
 
 const databaseSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
@@ -31,6 +31,7 @@ const serverSchema = databaseSchema
 
     GEMINI_API_KEY: z.string().min(1).optional(),
     GEMINI_MODEL: z.string().min(1).default(DEFAULT_GEMINI_MODEL),
+    GEMINI_FALLBACK_MODEL: z.string().min(1).default(DEFAULT_GEMINI_FALLBACK_MODEL),
   })
   .superRefine((data, ctx) => {
     if (data.COOKIE_SAMESITE === 'none' && !data.COOKIE_SECURE) {

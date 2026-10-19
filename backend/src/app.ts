@@ -12,6 +12,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createLimiters } from './middleware/rateLimit.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { verifyWebhookRequest } from './middleware/webhookAuth.js';
+import { assistantRouter } from './routes/assistant.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { overviewRouter } from './routes/overview.js';
@@ -56,6 +57,13 @@ export function createApp(): Express {
   app.use('/api/overview', limiters.api, requireAuth, overviewRouter());
   app.use('/api/subscribers', limiters.api, requireAuth, subscribersRouter());
   app.use('/api/segments', limiters.api, requireAuth, express.json({ limit: JSON_BODY_LIMIT }), segmentsRouter());
+  app.use(
+    '/api/assistant',
+    limiters.api,
+    requireAuth,
+    express.json({ limit: JSON_BODY_LIMIT }),
+    assistantRouter(limiters),
+  );
 
   app.use(
     WEBHOOK_MOUNT,

@@ -39,7 +39,8 @@ export const SUBSCRIBER_STATUSES = ['active', 'unsubscribed'] as const;
 export type SubscriberStatus = (typeof SUBSCRIBER_STATUSES)[number];
 
 export const DEFAULT_PORT = 4000;
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+export const DEFAULT_GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 export const SECRET_MIN_LENGTH = 32;
 
 export const SESSION_SUBJECT = 'growth';
@@ -53,10 +54,26 @@ export const WEBHOOK_ID_MAX_LENGTH = 128;
 export const SEARCH_LIMIT = 25;
 export const ACTIVITY_LIMIT = 50;
 
+export const ASSISTANT_QUESTION_MAX_LENGTH = 500;
+export const ASSISTANT_ANSWER_MAX_LENGTH = 4000;
+export const ASSISTANT_HISTORY_TURNS = 6;
+export const ASSISTANT_TOOL_ROUNDS = 4;
+export const ASSISTANT_DEADLINE_MS = 25_000;
+export const ASSISTANT_TABLE_LIMIT = 15;
+export const SEGMENT_NAME_MAX_LENGTH = 120;
+
 export const INSTAGRAM_COLD_PRESET = {
   acquisitionSource: 'Instagram',
   lastOpen: 'cold',
 } as const;
+
+export const ENGAGED_PRESET = {
+  status: 'active',
+  hasWebsite: true,
+  hasApp: true,
+} as const;
+
+export const ENGAGED_SEGMENT_NAME = 'Most engaged readers';
 
 export const JSON_BODY_LIMIT = '16kb';
 export const SHUTDOWN_TIMEOUT_MS = 10_000;

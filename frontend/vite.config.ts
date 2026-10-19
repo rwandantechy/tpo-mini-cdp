@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: DEV_API_ORIGIN, changeOrigin: true },
+      '/api': { target: DEV_API_ORIGIN, changeOrigin: true, timeout: 120_000 },
       '/webhooks': { target: DEV_API_ORIGIN, changeOrigin: true },
     },
   },
