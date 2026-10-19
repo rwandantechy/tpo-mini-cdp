@@ -68,7 +68,7 @@ Signed app event: `npm run send-event`. Override the URL with `WEBHOOK_URL`.
 
 One Vercel project, two services, one domain. `vercel.json` sends `/api` and `/webhooks` to the Express service and everything else to the Vite app. The browser calls `/api` on that same domain. Leave `VITE_API_BASE_URL` unset. Do not put secrets in any `VITE_` variable.
 
-The deploy build does not run `npm run migrate` or `npm run import`. Run those yourself against Supabase before the first request. `src/index.ts` is the local and VPS process. Vercel loads `src/server.ts`, which does not listen and does not connect until a request arrives.
+The deploy build does not run `npm run migrate` or `npm run import`. Run those yourself against Supabase before the first request. `src/index.ts` is the local and VPS process. Vercel loads `src/app.ts` (its Express builder picks that file over `src/server.ts`). That handler does not listen and does not connect until a request arrives.
 
 Backend environment, Production (and Preview if you use it):
 

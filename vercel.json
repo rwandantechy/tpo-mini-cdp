@@ -4,9 +4,9 @@
     "backend": {
       "root": "backend",
       "framework": "express",
-      "entrypoint": "src/server.ts",
+      "entrypoint": "src/app.ts",
       "functions": {
-        "src/server.ts": {
+        "src/app.ts": {
           "maxDuration": 30,
           "includeFiles": "../certs/supabase-ca.crt"
         }
