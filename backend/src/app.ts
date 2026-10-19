@@ -5,17 +5,19 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 
-import { JSON_BODY_LIMIT } from './config/constants.js';
+import { JSON_BODY_LIMIT, WEBHOOK_MOUNT } from './config/constants.js';
 import { corsOrigins, getServerEnv } from './config/env.js';
 import { forbidden } from './lib/errors.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createLimiters } from './middleware/rateLimit.js';
 import { requireAuth } from './middleware/requireAuth.js';
+import { verifyWebhookRequest } from './middleware/webhookAuth.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { overviewRouter } from './routes/overview.js';
 import { segmentsRouter } from './routes/segments.js';
 import { subscribersRouter } from './routes/subscribers.js';
+import { webhooksRouter } from './routes/webhooks.js';
 
 export function createApp(): Express {
   const env = getServerEnv();
@@ -54,6 +56,14 @@ export function createApp(): Express {
   app.use('/api/overview', limiters.api, requireAuth, overviewRouter());
   app.use('/api/subscribers', limiters.api, requireAuth, subscribersRouter());
   app.use('/api/segments', limiters.api, requireAuth, express.json({ limit: JSON_BODY_LIMIT }), segmentsRouter());
+
+  app.use(
+    WEBHOOK_MOUNT,
+    limiters.webhook,
+    express.raw({ type: () => true, limit: JSON_BODY_LIMIT }),
+    verifyWebhookRequest,
+    webhooksRouter(),
+  );
 
   app.use(notFoundHandler);
   app.use(errorHandler);

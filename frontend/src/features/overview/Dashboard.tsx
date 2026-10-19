@@ -85,7 +85,7 @@ export function Dashboard() {
           <h2 className="text-sm font-medium text-ink-soft">App</h2>
           <Card className="mt-2">
             <dl className="grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              <Stat label="Accounts" value={app.accounts} />
+              <Stat label="Accounts" value={app.accounts} note={`${app.events.toLocaleString()} events`} />
               <Stat label="Matched" value={app.linkedToSubscriber} note="linked to a subscriber" />
               <Stat label="Unmatched" value={app.withoutSubscriber} note="kept their own profile" />
             </dl>

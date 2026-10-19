@@ -1,19 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { WEBHOOK_REPLAY_WINDOW_SECONDS } from '../src/config/constants.js';
+import { SAMPLE_APP_EVENT, WEBHOOK_REPLAY_WINDOW_SECONDS } from '../src/config/constants.js';
 import { signPayload, verifySignature } from '../src/lib/hmac.js';
 import { randomCredential, TEST_WEBHOOK_SECRET as SECRET } from './helpers/credentials.js';
 
 const NOW = 1_790_000_000;
 
-const BODY = JSON.stringify({
-  event_id: 'evt_9f3a1c',
-  event: 'read_story',
-  user_id: 'u_2b6447a3',
-  device_id: 'd_4b21e8',
-  timestamp: '2026-09-28T14:22:05Z',
-  properties: { story: 'supreme-court-ruling-explained' },
-});
+const BODY = JSON.stringify(SAMPLE_APP_EVENT);
 
 function verify(overrides: Partial<Parameters<typeof verifySignature>[0]> = {}) {
   return verifySignature({
