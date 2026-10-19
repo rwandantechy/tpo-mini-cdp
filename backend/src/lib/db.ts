@@ -6,6 +6,7 @@ import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg
 
 import { DB_CONNECT_TIMEOUT_MS, DB_IDLE_TIMEOUT_MS, DB_POOL_MAX, SLOW_QUERY_MS } from '../config/constants.js';
 import { type DatabaseEnv, getDatabaseEnv } from '../config/env.js';
+import { BUNDLED_CA } from './bundled-ca.js';
 import { log } from './logger.js';
 
 export interface Executor {
@@ -23,11 +24,10 @@ function readCaCertificate(relativePath: string): string {
     resolve(process.cwd(), '..', relativePath),
   ];
   const found = candidates.find((path) => existsSync(path));
-  if (!found) {
-    throw new Error(`Database CA certificate was not found (${relativePath}).`);
-  }
+  if (found) return readFileSync(found, 'utf8');
+  if (BUNDLED_CA) return BUNDLED_CA;
 
-  return readFileSync(found, 'utf8');
+  throw new Error(`Database CA certificate was not found (${relativePath}).`);
 }
 
 /** `no-verify` encrypts but trusts any certificate. */
