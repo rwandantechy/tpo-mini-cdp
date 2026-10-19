@@ -153,7 +153,8 @@ export function historyContents(history: HistoryTurn[]): Content[] {
     const gated = modelUserText(turn.question);
     if (!gated.ok) continue;
     const answer = plainAnswer(turn.answer);
-    if (!answer || containsPii(answer, { names: false })) continue;
+    // Same name check as the question. Stopwords keep headings such as "Top Pages".
+    if (!answer || containsPii(answer)) continue;
     contents.push({ role: 'user', parts: [{ text: gated.text }] });
     contents.push({ role: 'model', parts: [{ text: answer }] });
   }

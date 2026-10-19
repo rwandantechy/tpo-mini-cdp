@@ -153,16 +153,29 @@ export async function listSegments(): Promise<SavedSegment[]> {
 }
 
 export async function saveSegment(name: string, definition: SegmentDefinition, createdBy: string): Promise<SavedSegment> {
-  const row = await queryOne<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
+  const payload = JSON.stringify(definition);
+  const existing = await queryOne<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
     `
-    insert into segments (name, definition, created_by)
-    values ($1, $2::jsonb, $3)
+    update segments
+    set name = $1, definition = $2::jsonb
+    where lower(name) = lower($1)
     returning id, name, definition, created_at
     `,
-    [name, JSON.stringify(definition), createdBy],
+    [name, payload],
   );
 
-  if (!row) throw new Error('Segment insert returned no row.');
+  const row =
+    existing ??
+    (await queryOne<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
+      `
+      insert into segments (name, definition, created_by)
+      values ($1, $2::jsonb, $3)
+      returning id, name, definition, created_at
+      `,
+      [name, payload, createdBy],
+    ));
+
+  if (!row) throw new Error('Segment save returned no row.');
 
   return {
     id: row.id,
