@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +14,21 @@ export interface Executor {
 
 let pool: Pool | null = null;
 
+function readCaCertificate(relativePath: string): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(here, '../../..', relativePath),
+    resolve(process.cwd(), relativePath),
+    resolve(process.cwd(), '..', relativePath),
+  ];
+  const found = candidates.find((path) => existsSync(path));
+  if (!found) {
+    throw new Error(`Database CA certificate was not found (${relativePath}).`);
+  }
+
+  return readFileSync(found, 'utf8');
+}
+
 /** `no-verify` encrypts but trusts any certificate. */
 function sslConfig(env: DatabaseEnv) {
   switch (env.DATABASE_SSL) {
@@ -25,10 +40,9 @@ function sslConfig(env: DatabaseEnv) {
     case 'require': {
       if (!env.DATABASE_CA_CERT) return { rejectUnauthorized: true };
 
-      const here = dirname(fileURLToPath(import.meta.url));
       return {
         rejectUnauthorized: true,
-        ca: readFileSync(resolve(here, '../../..', env.DATABASE_CA_CERT), 'utf8'),
+        ca: readCaCertificate(env.DATABASE_CA_CERT),
       };
     }
   }

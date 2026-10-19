@@ -12,3 +12,12 @@ describe('POST /api/segments/preview', () => {
     expect(response.body.error.code).toBe('unauthorized');
   });
 });
+
+describe('DELETE /api/segments/:id', () => {
+  it('refuses an anonymous caller', async () => {
+    const app = await buildTestApp();
+    const response = await request(app).delete('/api/segments/00000000-0000-4000-8000-000000000000');
+
+    expect(response.status).toBe(401);
+  });
+});

@@ -53,6 +53,7 @@ export const WEBHOOK_ID_MAX_LENGTH = 128;
 
 export const SEARCH_LIMIT = 25;
 export const ACTIVITY_LIMIT = 50;
+export const OVERVIEW_PAGE_LIMIT = 8;
 
 export const ASSISTANT_QUESTION_MAX_LENGTH = 500;
 export const ASSISTANT_ANSWER_MAX_LENGTH = 4000;
@@ -66,6 +67,8 @@ export const INSTAGRAM_COLD_PRESET = {
   acquisitionSource: 'Instagram',
   lastOpen: 'cold',
 } as const;
+
+export const INSTAGRAM_COLD_SEGMENT_NAME = "Instagram signups who haven't opened in 30 days";
 
 export const ENGAGED_PRESET = {
   status: 'active',

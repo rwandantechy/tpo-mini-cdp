@@ -37,4 +37,23 @@ describeDb('overview figures', () => {
     expect(subscribers?.rowsSkipped).toBe(10);
     expect(subscribers?.skipReasons).toEqual({ email_missing: 8, email_malformed: 2 });
   });
+
+  it('breaks the list down by signup source and top pages', async () => {
+    const overview = await getOverview();
+    const people = overview.sources.reduce((sum, row) => sum + row.total, 0);
+
+    expect(people).toBe(2900);
+    expect(overview.sources[0]).toMatchObject({
+      source: 'Instagram',
+      total: 899,
+      active: 806,
+      unsubscribed: 93,
+      share: 31,
+    });
+    expect(overview.pages.length).toBeGreaterThan(0);
+    expect(overview.pages.length).toBeLessThanOrEqual(8);
+    expect(overview.lists.instagramCold).toBe(229);
+    expect(overview.lists.instagramColdActive).toBe(174);
+    expect(overview.lists.engaged).toBeGreaterThan(0);
+  });
 });

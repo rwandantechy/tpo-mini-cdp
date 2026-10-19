@@ -167,8 +167,10 @@ export function Assistant() {
       >
         <div className="flex items-start justify-between gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6">
           <div>
-            <h1 className="text-lg font-semibold text-ink">Assistant</h1>
-            <p className="mt-0.5 text-sm text-ink-soft">Totals, pages, and segments. Named people stay in this app.</p>
+            <h1 className="text-lg font-semibold text-ink">Ask</h1>
+            <p className="mt-0.5 text-sm text-ink-soft">
+              The model sees totals and tables. Names and emails stay in this app.
+            </p>
           </div>
           {turns.length > 0 ? (
             <Button

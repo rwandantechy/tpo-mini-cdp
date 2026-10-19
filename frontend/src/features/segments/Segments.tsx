@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button, Field, Notice, Pager, Select } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
-import { ACQUISITION_SOURCES, COLD_WINDOW_DAYS, INSTAGRAM_COLD_PRESET, PAGE_SIZE } from '../../lib/constants.ts';
+import {
+  ACQUISITION_SOURCES,
+  COLD_WINDOW_DAYS,
+  INSTAGRAM_COLD_PRESET,
+  INSTAGRAM_COLD_SEGMENT_NAME,
+  PAGE_SIZE,
+} from '../../lib/constants.ts';
 import { formatDate } from '../../lib/format.ts';
 import { useEscape } from '../../lib/useEscape.ts';
 import { PersonList } from '../subscribers/PersonList.tsx';
@@ -58,7 +64,7 @@ function fromDefinition(definition: SegmentDefinition): Filters {
 }
 
 export function Segments() {
-  const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS });
+  const [filters, setFilters] = useState<Filters>(() => fromDefinition(INSTAGRAM_COLD_PRESET));
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<SegmentPreview | null>(null);
   const [saved, setSaved] = useState<SavedSegment[]>([]);
@@ -70,6 +76,7 @@ export function Segments() {
   const close = useCallback(() => setSelectedId(null), []);
   const definition = toDefinition(filters);
   const definitionKey = JSON.stringify(definition);
+  const instagramColdActive = definitionKey === JSON.stringify(INSTAGRAM_COLD_PRESET);
 
   useEscape(Boolean(selectedId), close);
 
@@ -112,6 +119,15 @@ export function Segments() {
     }
   }
 
+  async function remove(id: string) {
+    try {
+      await api.delete(`/api/segments/${id}`);
+      setSaved((current) => current.filter((segment) => segment.id !== id));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not remove that segment.');
+    }
+  }
+
   const total = page?.total ?? 0;
   const limit = page?.limit ?? PAGE_SIZE;
   const from = total === 0 ? 0 : offset + 1;
@@ -140,13 +156,13 @@ export function Segments() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="quiet"
-              className="px-3 py-1.5"
+              className={`px-3 py-1.5 ${instagramColdActive ? 'bg-blush font-medium text-ink' : ''}`}
               onClick={() => {
                 setFilters(fromDefinition(INSTAGRAM_COLD_PRESET));
                 setOffset(0);
               }}
             >
-              Instagram, no open in {COLD_WINDOW_DAYS} days
+              {INSTAGRAM_COLD_SEGMENT_NAME}
             </Button>
             <Button variant="quiet" className="px-3 py-1.5" onClick={() => { setFilters({ ...EMPTY_FILTERS }); setOffset(0); }}>
               Clear
@@ -212,16 +228,28 @@ export function Segments() {
           {saved.length > 0 ? (
             <ul className="mt-3 flex flex-wrap gap-2">
               {saved.map((segment) => (
-                <li key={segment.id}>
+                <li key={segment.id} className="inline-flex items-center rounded-full border border-line bg-surface">
                   <button
                     type="button"
-                    className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted"
+                    className={`rounded-l-full px-3 py-1 text-xs hover:bg-surface-muted ${
+                      JSON.stringify(toDefinition(fromDefinition(segment.definition))) === definitionKey
+                        ? 'bg-blush font-medium text-ink'
+                        : 'text-ink'
+                    }`}
                     onClick={() => {
                       setFilters(fromDefinition(segment.definition));
                       setOffset(0);
                     }}
                   >
                     {segment.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-r-full px-1.5 py-1 text-xs text-ink-soft hover:bg-surface-muted hover:text-ink"
+                    aria-label={`Remove ${segment.name}`}
+                    onClick={() => void remove(segment.id)}
+                  >
+                    ×
                   </button>
                 </li>
               ))}

@@ -2,6 +2,8 @@ import { type FormEvent, useState } from 'react';
 
 import { Button, Card, Field, Notice } from '../../components/ui.tsx';
 import { ApiError } from '../../lib/api.ts';
+import { REFERENCE_DATE } from '../../lib/constants.ts';
+import { formatDate } from '../../lib/format.ts';
 
 export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<void> }) {
   const [password, setPassword] = useState('');
@@ -24,11 +26,12 @@ export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<v
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-blush px-4">
+    <main className="flex min-h-dvh items-center justify-center bg-surface-muted px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-center text-xl font-semibold text-ink">Mini CDP</h1>
+        <p className="text-center text-xs font-medium tracking-wide text-ink-soft">Growth</p>
+        <h1 className="mt-1 text-center text-xl font-semibold text-ink">Mini CDP</h1>
         <p className="mt-2 text-center text-sm text-ink-soft">
-          Newsletter, website and app activity in one place.
+          Newsletter, website, and app. Figures as of {formatDate(REFERENCE_DATE)}.
         </p>
 
         <Card className="mt-6 p-5">

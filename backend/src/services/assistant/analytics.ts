@@ -1,8 +1,7 @@
-import { ASSISTANT_TABLE_LIMIT, COLD_WINDOW_DAYS, INSTAGRAM_COLD_PRESET } from '../../config/constants.js';
+import { ASSISTANT_TABLE_LIMIT, COLD_WINDOW_DAYS } from '../../config/constants.js';
 import { daysBeforeReference } from '../../lib/dates.js';
 import { query } from '../../lib/db.js';
-import { getOverview } from '../overview.js';
-import { countSegment } from '../segments.js';
+import { getOverview, loadSourceMix, loadTopPages } from '../overview.js';
 
 export interface AggregateTable {
   title: string;
@@ -10,11 +9,7 @@ export interface AggregateTable {
 }
 
 export async function snapshotCounts(): Promise<Record<string, number | string>> {
-  const [overview, instagramCold, instagramColdActive] = await Promise.all([
-    getOverview(),
-    countSegment({ ...INSTAGRAM_COLD_PRESET }),
-    countSegment({ ...INSTAGRAM_COLD_PRESET, status: 'active' }),
-  ]);
+  const overview = await getOverview();
 
   return {
     referenceDate: overview.referenceDate,
@@ -24,8 +19,8 @@ export async function snapshotCounts(): Promise<Record<string, number | string>>
     unsubscribed: overview.subscribers.unsubscribed,
     neverOpened: overview.subscribers.neverOpened,
     coldSinceCutoff: overview.subscribers.coldSinceCutoff,
-    instagramCold: instagramCold.total,
-    instagramColdActive: instagramColdActive.total,
+    instagramCold: overview.lists.instagramCold,
+    instagramColdActive: overview.lists.instagramColdActive,
     appAccounts: overview.app.accounts,
     appLinked: overview.app.linkedToSubscriber,
     appEvents: overview.app.events,
@@ -36,66 +31,27 @@ export async function snapshotCounts(): Promise<Record<string, number | string>>
 }
 
 export async function subscriberBreakdown(): Promise<AggregateTable> {
-  const rows = await query<{ source: string | null; status: string; count: string }>(
-    `
-    select acquisition_source as source, status, count(*) as count
-    from subscribers
-    group by acquisition_source, status
-    order by count(*) desc, acquisition_source
-    `,
-  );
-
-  const bySource = new Map<string, { active: number; unsubscribed: number }>();
-  for (const row of rows) {
-    const source = row.source ?? '(none)';
-    const current = bySource.get(source) ?? { active: 0, unsubscribed: 0 };
-    if (row.status === 'unsubscribed') current.unsubscribed += Number(row.count);
-    else current.active += Number(row.count);
-    bySource.set(source, current);
-  }
-
-  const grouped = [...bySource.entries()].map(([source, counts]) => ({
-    source,
-    total: counts.active + counts.unsubscribed,
-    active: counts.active,
-    unsubscribed: counts.unsubscribed,
-  }));
-  grouped.sort((left, right) => right.total - left.total || left.source.localeCompare(right.source));
-  const all = grouped.reduce((sum, row) => sum + row.total, 0);
+  const rows = await loadSourceMix();
 
   return {
     title: 'Subscribers by source',
-    rows: grouped.map((row) => ({
+    rows: rows.map((row) => ({
       source: row.source,
       total: row.total,
       active: row.active,
       unsubscribed: row.unsubscribed,
-      unsubRate: percent(row.unsubscribed, row.total),
-      share: percent(row.total, all),
+      unsubRate: `${row.unsubRate}%`,
+      share: `${row.share}%`,
     })),
   };
 }
 
-function percent(part: number, whole: number): string {
-  if (whole <= 0) return '0%';
-  return `${Math.round((part / whole) * 100)}%`;
-}
-
 export async function topPages(limit = ASSISTANT_TABLE_LIMIT): Promise<AggregateTable> {
-  const rows = await query<{ page: string; views: string }>(
-    `
-    select page, count(*) as views
-    from web_events
-    group by page
-    order by count(*) desc, page
-    limit $1
-    `,
-    [limit],
-  );
+  const rows = await loadTopPages(limit);
 
   return {
     title: 'Top pages',
-    rows: rows.map((row) => ({ page: row.page, views: Number(row.views) })),
+    rows: rows.map((row) => ({ page: row.page, views: row.views })),
   };
 }
 

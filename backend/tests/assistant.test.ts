@@ -186,6 +186,60 @@ describe('ask model-request boundary', () => {
     ]);
   });
 
+  it('drops a history answer that contains an email and still answers the follow-up', async () => {
+    const gemini = scriptedGemini([{ text: '552 Facebook signups.' }]);
+
+    const result = await ask('how many facebook signups?', {
+      gemini,
+      model: 'test-model',
+      createdBy: 'growth',
+      history: [{ question: 'who should we contact?', answer: 'Try claire.collins447@gmail.com.' }],
+    });
+
+    expect(result.blocked).toBe(false);
+    const sent = JSON.stringify(gemini.requests);
+    expect(sent).not.toContain('claire');
+    expect(sent).not.toMatch(/@/);
+    expect(gemini.requests[0]?.contents).toEqual([
+      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
+    ]);
+  });
+
+  it('drops a history answer that names a person and still answers the follow-up', async () => {
+    const gemini = scriptedGemini([{ text: '552 Facebook signups.' }]);
+
+    const result = await ask('how many facebook signups?', {
+      gemini,
+      model: 'test-model',
+      createdBy: 'growth',
+      history: [{ question: 'who is most active?', answer: 'Claire Collins is the most active reader.' }],
+    });
+
+    expect(result.blocked).toBe(false);
+    expect(JSON.stringify(gemini.requests)).not.toContain('Claire');
+    expect(gemini.requests[0]?.contents).toEqual([
+      { role: 'user', parts: [{ text: 'how many facebook signups?' }] },
+    ]);
+  });
+
+  it('keeps a history answer that is an analytics heading', async () => {
+    const gemini = scriptedGemini([{ text: 'Still 174.' }]);
+    const answer = '## Top Pages\n\nInstagram is 31% of the list. 174 are still subscribed.';
+
+    await ask('how many of them are still subscribed?', {
+      gemini,
+      model: 'test-model',
+      createdBy: 'growth',
+      history: [{ question: 'break down signup source', answer }],
+    });
+
+    expect(gemini.requests[0]?.contents).toEqual([
+      { role: 'user', parts: [{ text: 'break down signup source' }] },
+      { role: 'model', parts: [{ text: answer }] },
+      { role: 'user', parts: [{ text: 'how many of them are still subscribed?' }] },
+    ]);
+  });
+
   it('never calls Gemini when the question contains PII', async () => {
     const gemini = scriptedGemini([{ text: 'should not run' }]);
 
