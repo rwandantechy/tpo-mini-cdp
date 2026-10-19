@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button, Notice, Spinner } from './components/ui.tsx';
 import { SignIn } from './features/auth/SignIn.tsx';
 import { useSession } from './features/auth/useSession.ts';
+import { Assistant } from './features/assistant/Assistant.tsx';
 import { Dashboard } from './features/overview/Dashboard.tsx';
 import { Segments } from './features/segments/Segments.tsx';
 import { People } from './features/subscribers/People.tsx';
@@ -11,6 +12,7 @@ const NAV = [
   { id: 'overview', label: 'Overview' },
   { id: 'people', label: 'People' },
   { id: 'segments', label: 'Segments' },
+  { id: 'assistant', label: 'Ask' },
 ] as const;
 
 type Screen = (typeof NAV)[number]['id'];
@@ -92,9 +94,10 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
           ) : null}
           {screen === 'people' ? <People /> : null}
           {screen === 'segments' ? <Segments /> : null}
+          {screen === 'assistant' ? <Assistant /> : null}
         </main>
 
-        <nav className="grid grid-cols-3 border-t border-line bg-surface md:hidden">
+        <nav className="grid grid-cols-4 border-t border-line bg-surface md:hidden">
           {NAV.map((item) => (
             <Tab key={item.id} active={screen === item.id} onClick={() => setScreen(item.id)}>
               {item.label}

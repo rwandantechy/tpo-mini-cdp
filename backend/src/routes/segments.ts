@@ -1,33 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import {
-  ACQUISITION_SOURCES,
-  SEARCH_LIMIT,
-  SUBSCRIBER_STATUSES,
-} from '../config/constants.js';
+import { SEARCH_LIMIT, SEGMENT_NAME_MAX_LENGTH } from '../config/constants.js';
 import { notFound } from '../lib/errors.js';
-import { isIsoDate } from '../lib/dates.js';
 import {
   deleteSegment,
-  LAST_OPEN_FILTERS,
   listSegments,
   previewSegment,
   saveSegment,
-  type SegmentDefinition,
+  segmentDefinitionSchema,
 } from '../services/segments.js';
-
-const isoDate = z.string().refine(isIsoDate, 'Use an ISO date (YYYY-MM-DD).');
-
-export const segmentDefinitionSchema: z.ZodType<SegmentDefinition> = z.object({
-  acquisitionSource: z.enum(ACQUISITION_SOURCES).optional(),
-  status: z.enum(SUBSCRIBER_STATUSES).optional(),
-  signupFrom: isoDate.optional(),
-  signupTo: isoDate.optional(),
-  lastOpen: z.enum(LAST_OPEN_FILTERS).optional(),
-  hasWebsite: z.boolean().optional(),
-  hasApp: z.boolean().optional(),
-});
 
 const previewSchema = z.object({
   definition: segmentDefinitionSchema,
@@ -36,7 +18,7 @@ const previewSchema = z.object({
 });
 
 const saveSchema = z.object({
-  name: z.string().trim().min(1, 'Give the segment a name.').max(120),
+  name: z.string().trim().min(1, 'Give the segment a name.').max(SEGMENT_NAME_MAX_LENGTH),
   definition: segmentDefinitionSchema,
 });
 

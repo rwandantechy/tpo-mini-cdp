@@ -1,5 +1,14 @@
-import { COLD_WINDOW_DAYS, SEARCH_LIMIT, type AcquisitionSource, type SubscriberStatus } from '../config/constants.js';
-import { daysBeforeReference } from '../lib/dates.js';
+import { z } from 'zod';
+
+import {
+  ACQUISITION_SOURCES,
+  COLD_WINDOW_DAYS,
+  SEARCH_LIMIT,
+  SUBSCRIBER_STATUSES,
+  type AcquisitionSource,
+  type SubscriberStatus,
+} from '../config/constants.js';
+import { daysBeforeReference, isIsoDate } from '../lib/dates.js';
 import { query, queryOne } from '../lib/db.js';
 import { subscriberHitFromRow, type SubscriberPage, type SubscriberRow } from './subscribers.js';
 
@@ -27,6 +36,18 @@ export interface SavedSegment {
 }
 
 export const LAST_OPEN_FILTERS = ['any', 'never', 'cold'] as const;
+
+const isoDate = z.string().refine(isIsoDate, 'Use an ISO date (YYYY-MM-DD).');
+
+export const segmentDefinitionSchema: z.ZodType<SegmentDefinition> = z.object({
+  acquisitionSource: z.enum(ACQUISITION_SOURCES).optional(),
+  status: z.enum(SUBSCRIBER_STATUSES).optional(),
+  signupFrom: isoDate.optional(),
+  signupTo: isoDate.optional(),
+  lastOpen: z.enum(LAST_OPEN_FILTERS).optional(),
+  hasWebsite: z.boolean().optional(),
+  hasApp: z.boolean().optional(),
+});
 
 function buildWhere(definition: SegmentDefinition): { sql: string; params: unknown[] } {
   const conditions: string[] = ['true'];
@@ -100,6 +121,16 @@ export async function previewSegment(
     total: Number(rows[0]?.total ?? 0),
     limit,
     offset,
+    cutoffDate: daysBeforeReference(COLD_WINDOW_DAYS),
+  };
+}
+
+export async function countSegment(definition: SegmentDefinition): Promise<{ total: number; cutoffDate: string }> {
+  const { sql, params } = buildWhere(definition);
+  const row = await queryOne<{ total: string }>(`select count(*) as total from subscribers s where ${sql}`, params);
+
+  return {
+    total: Number(row?.total ?? 0),
     cutoffDate: daysBeforeReference(COLD_WINDOW_DAYS),
   };
 }

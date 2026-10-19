@@ -99,7 +99,15 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'error'; c
 }
 
 export function Spinner({ label }: { label: string }) {
-  return <p className="text-sm text-ink-soft">{label}</p>;
+  return (
+    <p className="flex items-center gap-2 text-sm text-ink-soft" role="status" aria-live="polite">
+      <span
+        className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-line border-t-coral"
+        aria-hidden
+      />
+      {label}
+    </p>
+  );
 }
 
 export function PageHeader({ title, description }: { title: string; description?: string }) {
