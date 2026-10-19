@@ -150,11 +150,11 @@ describe('CORS', () => {
 
   it('allows the Vercel deployment that is serving this build', async () => {
     const previous = process.env.VERCEL_URL;
-    process.env.VERCEL_URL = 'mini-cdp-git-preview.vercel.app';
+    process.env.VERCEL_URL = 'mini-cdp-abc123.vercel.app';
 
     try {
       const app = await buildTestApp();
-      const origin = 'https://mini-cdp-git-preview.vercel.app';
+      const origin = 'https://mini-cdp-abc123.vercel.app';
       const response = await request(app).get('/api/auth/session').set('Origin', origin);
 
       expect(response.headers['access-control-allow-origin']).toBe(origin);
@@ -162,6 +162,22 @@ describe('CORS', () => {
     } finally {
       if (previous === undefined) delete process.env.VERCEL_URL;
       else process.env.VERCEL_URL = previous;
+    }
+  });
+
+  it('allows the Vercel branch alias in the address bar', async () => {
+    const previous = process.env.VERCEL_BRANCH_URL;
+    process.env.VERCEL_BRANCH_URL = 'mini-cdp-git-feature-vercel-mjs-team.vercel.app';
+
+    try {
+      const app = await buildTestApp();
+      const origin = 'https://mini-cdp-git-feature-vercel-mjs-team.vercel.app';
+      const response = await request(app).get('/api/auth/session').set('Origin', origin);
+
+      expect(response.headers['access-control-allow-origin']).toBe(origin);
+    } finally {
+      if (previous === undefined) delete process.env.VERCEL_BRANCH_URL;
+      else process.env.VERCEL_BRANCH_URL = previous;
     }
   });
 });

@@ -102,9 +102,9 @@ vercelEntry.use((req: Request, res: Response, next: NextFunction) => {
 
 export default vercelEntry;
 
-/** Current Vercel deployment, so preview URLs work without editing CORS_ORIGINS. */
+/** Deployment host, branch alias, and production host. Vercel omits the scheme. */
 function deploymentOrigins(): string[] {
-  return [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+  return [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
     .filter((host): host is string => typeof host === 'string' && host.length > 0 && !host.includes('://'))
     .map((host) => `https://${host}`);
 }
