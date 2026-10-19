@@ -5,6 +5,25 @@ export const COLD_WINDOW_DAYS = 30;
 export const APP_EVENT_NAMES = ['app_open', 'read_story', 'link_click', 'login'] as const;
 export type AppEventName = (typeof APP_EVENT_NAMES)[number];
 
+export const APP_USER_ORIGIN = {
+  csv: 'csv',
+  webhook: 'webhook',
+} as const;
+export type AppUserOrigin = (typeof APP_USER_ORIGIN)[keyof typeof APP_USER_ORIGIN];
+
+/** Exact payload from the assessment PDF. */
+export const SAMPLE_APP_EVENT = {
+  event_id: 'evt_9f3a1c',
+  event: 'read_story',
+  user_id: 'u_2b6447a3',
+  device_id: 'd_4b21e8',
+  timestamp: '2026-09-28T14:22:05Z',
+  properties: { story: 'supreme-court-ruling-explained' },
+} as const;
+
+export const WEBHOOK_MOUNT = '/webhooks';
+export const WEBHOOK_APP_PATH = `${WEBHOOK_MOUNT}/app`;
+
 export const ACQUISITION_SOURCES = [
   'Direct',
   'Facebook',
@@ -29,6 +48,7 @@ export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 200;
 
 export const WEBHOOK_REPLAY_WINDOW_SECONDS = 300;
+export const WEBHOOK_ID_MAX_LENGTH = 128;
 
 export const SEARCH_LIMIT = 25;
 export const ACTIVITY_LIMIT = 50;

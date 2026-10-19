@@ -1,5 +1,6 @@
 /** Dedupe and linking as SQL, so the result depends on the set of rows, not arrival order. */
 
+import { APP_USER_ORIGIN } from '../../config/constants.js';
 import type { Executor } from '../../lib/db.js';
 import { buildValues, chunk, isUniqueViolation } from '../../lib/sql.js';
 import type { AppUserRecord, SubscriberRecord, WebEventRecord } from './types.js';
@@ -130,7 +131,7 @@ export function appUserStatement(records: readonly AppUserRecord[]): { text: str
     insert into app_users as a
       (user_id, email_normalized, email_original, created_date, origin, subscriber_id)
     select distinct on (v.user_id)
-      v.user_id, v.email_normalized, v.email_original, v.created_date, 'csv', s.id
+      v.user_id, v.email_normalized, v.email_original, v.created_date, '${APP_USER_ORIGIN.csv}', s.id
     from (values ${clause}) as v (user_id, email_normalized, email_original, created_date)
     left join subscribers s on s.email_normalized = v.email_normalized
     order by v.user_id, v.created_date asc nulls last
