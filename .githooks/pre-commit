@@ -1,0 +1,48 @@
+#!/bin/sh
+# Blocks env files, key files, and credential patterns.
+# Enable: git config core.hooksPath .githooks
+
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+abort() {
+  echo "pre-commit: $1" >&2
+  echo "pre-commit: aborted, nothing was committed." >&2
+  exit 1
+}
+
+# .env.example is the only env file allowed.
+env_files=$(printf '%s\n' "$staged" | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+[ -n "$env_files" ] && abort "refusing to commit an env file:
+$env_files"
+
+key_files=$(printf '%s\n' "$staged" | grep -E '\.(pem|key|p12|pfx)$' || true)
+[ -n "$key_files" ] && abort "refusing to commit a key file:
+$key_files"
+
+# -e so a leading dash is not read as a flag.
+scan() {
+  grep -nE \
+    -e 'postgres(ql)?://[^[:space:]"'"'"'<]*:[^[:space:]"'"'"'<@]+@' \
+    -e 'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}' \
+    -e 'sb_(secret|publishable)_[A-Za-z0-9]{10,}' \
+    -e 'service_role' \
+    -e 'AIza[0-9A-Za-z_-]{30,}' \
+    -e 'AQ\.[A-Za-z0-9_-]{30,}' \
+    -e 'scrypt:[0-9a-f]{16,}:[0-9a-f]{16,}' \
+    -e '-----BEGIN [A-Z ]*PRIVATE KEY'
+}
+
+for file in $staged; do
+  case "$file" in
+    package-lock.json | .githooks/pre-commit | .env.example | certs/*.crt) continue ;;
+  esac
+
+  hit=$(git show ":$file" 2>/dev/null | scan | grep -v 'unused:unused@127\.0\.0\.1' || true)
+  [ -n "$hit" ] && abort "possible secret in $file
+$(printf '%s\n' "$hit" | cut -c1-110)"
+done
+
+exit 0
