@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { ENGAGED_PRESET, INSTAGRAM_COLD_PRESET } from '../src/config/constants.js';
 import { closePool, query } from '../src/lib/db.js';
+import { serviceUnavailable } from '../src/lib/errors.js';
 import { assertNoPii, containsPii } from '../src/lib/pii.js';
 import { ask, PII_REFUSAL } from '../src/services/assistant/ask.js';
 import { firstPagesForNewSubscribers, snapshotCounts, subscriberBreakdown, topPages } from '../src/services/assistant/analytics.js';
@@ -236,6 +237,20 @@ describeDb('assistant analytics', () => {
     expect(followSent.filters).toMatchObject({ acquisitionSource: 'Facebook', status: 'unsubscribed' });
     expect(followSent.total).toBe(48);
     expect(followed.answer).toContain('48');
+
+    const timedOut: GeminiClient = {
+      async generate() {
+        throw serviceUnavailable('The assistant took too long. Try again.');
+      },
+    };
+    const kept = await ask('How many Instagram signups went cold in the last 30 days?', {
+      gemini: timedOut,
+      model: 'test-model',
+      createdBy: 'growth',
+    });
+    expect(kept.blocked).toBe(false);
+    expect(kept.answer).toBe('229.');
+    expect(kept.tables[0]?.rows[0]?.total).toBe(229);
 
     const planned = planQuestion('How many Instagram signups signed up in the last 30 days and went cold?');
     expect(planned.ok).toBe(true);

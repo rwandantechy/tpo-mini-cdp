@@ -9,6 +9,7 @@ import { planQuestion } from '../src/services/assistant/plan.js';
 import {
   isGeminiCapacityError,
   isGeminiTimeoutError,
+  shouldTryFallback,
   type GeminiClient,
   type GeminiRequest,
   type GeminiTurn,
@@ -161,8 +162,14 @@ describe('isGeminiCapacityError', () => {
   it('treats an aborted generate as a timeout, not a hang', () => {
     const timeout = new Error('The operation was aborted due to timeout');
     timeout.name = 'TimeoutError';
+    const aborted = new Error('This operation was aborted');
+    aborted.name = 'AbortError';
+
     expect(isGeminiTimeoutError(timeout)).toBe(true);
+    expect(isGeminiTimeoutError(aborted)).toBe(true);
+    expect(shouldTryFallback(aborted)).toBe(true);
     expect(isGeminiTimeoutError(new Error('API key not valid'))).toBe(false);
+    expect(shouldTryFallback(new Error('API key not valid'))).toBe(false);
   });
 });
 

@@ -30,22 +30,30 @@ export interface GeminiClient {
   generate(request: GeminiRequest): Promise<GeminiTurn>;
 }
 
+/** Each attempt stays short enough that a fallback still fits under the 30s function limit. */
+const MODEL_ATTEMPT_MS = 12_000;
+
 export function createGemini(apiKey: string, fallbackModel?: string): GeminiClient {
   const ai = new GoogleGenAI({ apiKey });
 
   return {
     async generate(request) {
+      const budget = Math.max(1_000, request.timeoutMs ?? ASSISTANT_DEADLINE_MS);
+      const canFallback = Boolean(fallbackModel && fallbackModel !== request.model);
+      const primaryMs = canFallback ? Math.min(MODEL_ATTEMPT_MS, budget) : budget;
+
       try {
-        return await callModel(ai, request, request.model);
+        return await callModel(ai, { ...request, timeoutMs: primaryMs }, request.model);
       } catch (error) {
-        if (
-          isGeminiCapacityError(error) &&
-          fallbackModel &&
-          fallbackModel !== request.model
-        ) {
-          log.warn('gemini primary unavailable, trying fallback', { model: fallbackModel });
+        const remaining = budget - primaryMs;
+        if (canFallback && shouldTryFallback(error) && remaining >= 1_000) {
+          log.warn('gemini primary failed, trying fallback', { model: fallbackModel });
           try {
-            return await callModel(ai, request, fallbackModel);
+            return await callModel(
+              ai,
+              { ...request, timeoutMs: Math.min(MODEL_ATTEMPT_MS, remaining) },
+              fallbackModel as string,
+            );
           } catch (fallbackError) {
             throw unavailable(fallbackError);
           }
@@ -74,7 +82,13 @@ export function isGeminiCapacityError(error: unknown): boolean {
 
 export function isGeminiTimeoutError(error: unknown): boolean {
   const name = error instanceof Error ? error.name : '';
-  return name === 'TimeoutError' || name === 'AbortError';
+  const text = error instanceof Error ? error.message : String(error);
+  if (name === 'TimeoutError' || name === 'AbortError') return true;
+  return /operation was aborted|aborted due to timeout/i.test(text);
+}
+
+export function shouldTryFallback(error: unknown): boolean {
+  return isGeminiCapacityError(error) || isGeminiTimeoutError(error);
 }
 
 async function callModel(ai: GoogleGenAI, request: GeminiRequest, model: string): Promise<GeminiTurn> {

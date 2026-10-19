@@ -1,6 +1,7 @@
 import type { Content } from '@google/genai';
 
 import { ASSISTANT_ANSWER_MAX_LENGTH, ASSISTANT_DEADLINE_MS } from '../../config/constants.js';
+import { AppError } from '../../lib/errors.js';
 import { assertNoPii, containsPii, PiiBlockedError } from '../../lib/pii.js';
 import { log } from '../../lib/logger.js';
 import type { GeminiClient } from './gemini.js';
@@ -123,6 +124,11 @@ export function narrationContents(summary: Record<string, unknown>): Content[] {
   return [{ role: 'user', parts: [{ text: JSON.stringify(summary) }] }];
 }
 
+function countedSentence(summary: Record<string, unknown>): string {
+  if (typeof summary.total === 'number') return `${summary.total.toLocaleString('en-US')}.`;
+  return 'Here is what I found.';
+}
+
 export async function ask(question: string, options: AskOptions): Promise<AssistantAnswer> {
   const plan = planQuestion(question, options.history ?? []);
   if (!plan.ok) {
@@ -144,13 +150,25 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
     assertNoPii(contents);
     assertNoPii(systemInstruction());
 
-    const turn = await options.gemini.generate({
-      model: options.model,
-      systemInstruction: systemInstruction(),
-      contents,
-      includeTools: false,
-      timeoutMs: ASSISTANT_DEADLINE_MS,
-    });
+    let turn;
+    try {
+      turn = await options.gemini.generate({
+        model: options.model,
+        systemInstruction: systemInstruction(),
+        contents,
+        includeTools: false,
+        timeoutMs: ASSISTANT_DEADLINE_MS,
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      log.warn('assistant narration failed', { error: error.message });
+      return {
+        answer: countedSentence(summary),
+        blocked: false,
+        tables: result.table ? [result.table] : [],
+        segment: result.segment,
+      };
+    }
 
     const answer = plainAnswer(turn.text || '');
     if (!answer || containsPii(answer)) {
