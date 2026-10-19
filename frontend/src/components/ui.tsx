@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
@@ -30,6 +30,29 @@ export function Button({ variant = 'primary', className = '', ...props }: Button
       className={`rounded-lg px-4 py-2 text-sm font-medium disabled:cursor-not-allowed ${styles} ${className}`}
       {...props}
     />
+  );
+}
+
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+};
+
+export function Select({ label, id, className = '', children, ...props }: SelectProps) {
+  const selectId = id ?? `select-${label.toLowerCase().replace(/\s+/g, '-')}`;
+
+  return (
+    <div className={className}>
+      <label htmlFor={selectId} className="block text-xs font-medium text-ink-soft">
+        {label}
+      </label>
+      <select
+        id={selectId}
+        className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-2 text-sm text-ink"
+        {...props}
+      >
+        {children}
+      </select>
+    </div>
   );
 }
 

@@ -23,7 +23,7 @@ export interface SubscriberProfile {
   };
 }
 
-interface SubscriberRow {
+export interface SubscriberRow {
   id: string;
   email_original: string;
   email_normalized: string;
@@ -95,7 +95,7 @@ function isoTime(value: Date): string {
   return value.toISOString();
 }
 
-function toHit(row: SubscriberRow): SubscriberHit {
+export function subscriberHitFromRow(row: SubscriberRow): SubscriberHit {
   return {
     id: row.id,
     email: row.email_original,
@@ -142,7 +142,7 @@ export async function searchSubscribers(
   );
 
   return {
-    results: rows.map(toHit),
+    results: rows.map(subscriberHitFromRow),
     total: Number(rows[0]?.total ?? 0),
     limit,
     offset,
@@ -197,7 +197,7 @@ export async function getSubscriberProfile(id: string): Promise<SubscriberProfil
   const visitorIds = new Set(visits.map((visit) => visit.visitor_id));
 
   return {
-    subscriber: { ...toHit(row), emailNormalized: row.email_normalized },
+    subscriber: { ...subscriberHitFromRow(row), emailNormalized: row.email_normalized },
     website: {
       visitors: visitorIds.size,
       pageviews: visits.map((visit) => ({

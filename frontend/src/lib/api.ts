@@ -62,4 +62,5 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+  delete: (path: string) => request<void>(path, { method: 'DELETE' }),
 };
