@@ -1921,7 +1921,7 @@ vercelEntry.use((req, res, next) => {
 });
 var app_default = vercelEntry;
 function deploymentOrigins() {
-  return [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL].filter((host) => typeof host === "string" && host.length > 0 && !host.includes("://")).map((host) => `https://${host}`);
+  return [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL].filter((host) => typeof host === "string" && host.length > 0 && !host.includes("://")).map((host) => `https://${host}`);
 }
 export {
   createApp,
