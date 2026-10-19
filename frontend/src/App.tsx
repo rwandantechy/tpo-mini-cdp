@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, type ComponentType } from 'react';
 
+import { LayersIcon, LayoutIcon, MessageIcon, UsersIcon } from './components/icons.tsx';
 import { Button, Notice, Spinner } from './components/ui.tsx';
 import { SignIn } from './features/auth/SignIn.tsx';
 import { useSession } from './features/auth/useSession.ts';
@@ -9,10 +10,10 @@ import { Segments } from './features/segments/Segments.tsx';
 import { People } from './features/subscribers/People.tsx';
 
 const NAV = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'people', label: 'People' },
-  { id: 'segments', label: 'Segments' },
-  { id: 'assistant', label: 'Ask' },
+  { id: 'overview', label: 'Overview', icon: LayoutIcon },
+  { id: 'people', label: 'People', icon: UsersIcon },
+  { id: 'segments', label: 'Segments', icon: LayersIcon },
+  { id: 'assistant', label: 'Ask', icon: MessageIcon },
 ] as const;
 
 type Screen = (typeof NAV)[number]['id'];
@@ -60,7 +61,7 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
 
         <nav className="flex flex-1 flex-col gap-1 p-3">
           {NAV.map((item) => (
-            <SideLink key={item.id} active={screen === item.id} onClick={() => setScreen(item.id)}>
+            <SideLink key={item.id} active={screen === item.id} icon={item.icon} onClick={() => setScreen(item.id)}>
               {item.label}
             </SideLink>
           ))}
@@ -99,7 +100,7 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
 
         <nav className="grid grid-cols-4 border-t border-line bg-surface md:hidden">
           {NAV.map((item) => (
-            <Tab key={item.id} active={screen === item.id} onClick={() => setScreen(item.id)}>
+            <Tab key={item.id} active={screen === item.id} icon={item.icon} onClick={() => setScreen(item.id)}>
               {item.label}
             </Tab>
           ))}
@@ -109,27 +110,53 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
   );
 }
 
-function SideLink({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
+function SideLink({
+  active,
+  onClick,
+  icon: Icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ComponentType;
+  children: string;
+}) {
   return (
     <button
       type="button"
-      className={`rounded-md px-3 py-2 text-left text-sm ${
+      className={`flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${
         active ? 'bg-blush font-medium text-ink' : 'text-ink-soft hover:bg-surface-muted hover:text-ink'
       }`}
       onClick={onClick}
     >
+      <span className={active ? 'text-coral-deep' : undefined}>
+        <Icon />
+      </span>
       {children}
     </button>
   );
 }
 
-function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
+function Tab({
+  active,
+  onClick,
+  icon: Icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ComponentType;
+  children: string;
+}) {
   return (
     <button
       type="button"
-      className={`py-3 text-sm ${active ? 'font-medium text-ink' : 'text-ink-soft'}`}
+      className={`flex flex-col items-center gap-1 py-2 text-sm ${active ? 'font-medium text-ink' : 'text-ink-soft'}`}
       onClick={onClick}
     >
+      <span className={active ? 'text-coral-deep' : undefined}>
+        <Icon />
+      </span>
       {children}
     </button>
   );

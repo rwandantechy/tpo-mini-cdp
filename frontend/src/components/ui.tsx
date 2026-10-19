@@ -6,14 +6,18 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
   );
 }
 
-export function CardHeader({ title, hint }: { title: string; hint?: string }) {
+export function CardHeader({ title, hint, icon }: { title: string; hint?: string; icon?: ReactNode }) {
   return (
     <div className="border-b border-line px-5 py-4">
-      <h2 className="text-base font-semibold text-ink">{title}</h2>
+      <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
+        {icon ? <span className="text-coral-deep">{icon}</span> : null}
+        {title}
+      </h2>
       {hint ? <p className="mt-1 text-sm text-ink-soft">{hint}</p> : null}
     </div>
   );
 }
+
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'quiet';
@@ -79,10 +83,23 @@ export function Field({ label, hint, id, className = '', ...props }: FieldProps)
   );
 }
 
-export function Stat({ label, value, note }: { label: string; value: number | string; note?: string }) {
+export function Stat({
+  label,
+  value,
+  note,
+  icon,
+}: {
+  label: string;
+  value: number | string;
+  note?: string;
+  icon?: ReactNode;
+}) {
   return (
     <div className="px-5 py-4">
-      <dt className="text-sm text-ink-soft">{label}</dt>
+      <dt className="flex items-center gap-1.5 text-sm text-ink-soft">
+        {icon ? <span className="text-coral-deep">{icon}</span> : null}
+        {label}
+      </dt>
       <dd className="mt-1 text-2xl font-semibold tabular-nums text-ink">
         {typeof value === 'number' ? value.toLocaleString() : value}
       </dd>
