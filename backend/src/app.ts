@@ -2,12 +2,13 @@
 
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express, { type Express } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 
 import { JSON_BODY_LIMIT, WEBHOOK_MOUNT } from './config/constants.js';
 import { corsOrigins, getServerEnv } from './config/env.js';
 import { forbidden } from './lib/errors.js';
+import { log } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createLimiters } from './middleware/rateLimit.js';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -78,6 +79,29 @@ export function createApp(): Express {
 
   return app;
 }
+
+/**
+ * Vercel’s Express builder ignores `entrypoint` and uses the first file that
+ * imports express. `src/app.ts` is ahead of `src/server.ts`, so this default
+ * export is the handler that actually runs.
+ */
+let vercelApp: Express | undefined;
+
+const vercelEntry = express();
+
+vercelEntry.use((req: Request, res: Response, next: NextFunction) => {
+  try {
+    vercelApp ??= createApp();
+  } catch (error) {
+    log.error('api failed to start', { message: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: { code: 'internal_error', message: 'The API is not configured.' } });
+    return;
+  }
+
+  vercelApp(req, res, next);
+});
+
+export default vercelEntry;
 
 /** Current Vercel deployment, so preview URLs work without editing CORS_ORIGINS. */
 function deploymentOrigins(): string[] {
