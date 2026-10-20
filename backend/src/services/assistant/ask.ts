@@ -3,7 +3,7 @@ import type { Content } from '@google/genai';
 
 import { ASSISTANT_ANSWER_MAX_LENGTH, ASSISTANT_DEADLINE_MS } from '../../config/constants.js';
 import { AppError } from '../../lib/errors.js';
-import { assertNoPii, containsPii, PiiBlockedError } from '../../lib/pii.js';
+import { assertNoPii, containsPii, findPii, hasCapitalizedPersonName, PiiBlockedError } from '../../lib/pii.js';
 import { log } from '../../lib/logger.js';
 import type { GeminiClient } from './llm.js';
 import { planQuestion, UNSUPPORTED_ANSWER, type HistoryTurn } from './plan.js';
@@ -181,9 +181,27 @@ export async function ask(question: string, options: AskOptions): Promise<Assist
 
     // Check the generated answer before returning it to the client.
     const answer = plainAnswer(turn.text || '');
-    if (!answer || containsPii(answer)) {
-      log.info('assistant answer blocked', { reason: answer ? 'pii' : 'empty' });
+    if (!answer) {
+      log.info('assistant answer blocked', { reason: 'empty' });
       return { answer: PII_REFUSAL, blocked: true, tables: [] };
+    }
+
+    if (containsPii(answer)) {
+      const kinds = findPii(answer);
+      if (kinds.some((kind) => kind !== 'name') || hasCapitalizedPersonName(answer)) {
+        log.info('assistant answer blocked', { reason: 'pii' });
+        return { answer: PII_REFUSAL, blocked: true, tables: [] };
+      }
+
+      // The broad name heuristic can match ordinary prose. Discard that prose,
+      // but keep the verified count and any locally rendered aggregate results.
+      log.info('assistant answer replaced', { reason: 'ambiguous_name_match' });
+      return {
+        answer: countedSentence(summary),
+        blocked: false,
+        tables: result.table ? [result.table] : [],
+        segment: result.segment,
+      };
     }
 
     return {

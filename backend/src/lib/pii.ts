@@ -19,6 +19,7 @@ const APP_USER_ID = /\bu_[0-9a-f]{6,}\b/i;
 const DEVICE_ID = /\bd_[0-9a-f]{4,}\b/i;
 const EVENT_ID = /\bevt_[0-9a-f-]{6,}\b/i;
 const NAME_PAIR = /\b[a-z]{2,21}\s+[a-z]{2,21}\b/g;
+const CAPITALIZED_NAME_PAIR = /\b([A-Z][a-z]{1,20})\s+([A-Z][a-z]{1,20})\b/g;
 
 /** Words that show up in questions and headings, not people's names. */
 const NAME_STOPWORDS = new Set([
@@ -225,6 +226,17 @@ function hasPersonName(text: string): boolean {
     if (!first || !last) return false;
     return !NAME_STOPWORDS.has(first) && !NAME_STOPWORDS.has(last);
   });
+}
+
+/** A narrower check for names in generated prose, where sentence wording is noisy. */
+export function hasCapitalizedPersonName(text: string): boolean {
+  const matches = text.matchAll(CAPITALIZED_NAME_PAIR);
+  for (const match of matches) {
+    const first = match[1]?.toLowerCase();
+    const last = match[2]?.toLowerCase();
+    if (first && last && !NAME_STOPWORDS.has(first) && !NAME_STOPWORDS.has(last)) return true;
+  }
+  return false;
 }
 
 export function findPii(text: string, options: PiiOptions = {}): PiiKind[] {
