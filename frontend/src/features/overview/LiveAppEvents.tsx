@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { ActivityIcon } from '../../components/icons.tsx';
-import { Card, Notice } from '../../components/ui.tsx';
+import { Button, Card, Notice } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
 
 interface LiveAppEvent {
@@ -12,8 +12,18 @@ interface LiveAppEvent {
   subscriber: string;
 }
 
-export function LiveAppEvents() {
+interface LiveAppEventPage {
+  events: LiveAppEvent[];
+  total: number;
+}
+
+const PAGE_SIZE = 5;
+
+export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolean; onViewAll?: () => void }) {
   const [events, setEvents] = useState<LiveAppEvent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,9 +35,10 @@ export function LiveAppEvents() {
       pending = true;
 
       try {
-        const rows = await api.get<LiveAppEvent[]>('/api/app-events?limit=50');
+        const page = await api.get<LiveAppEventPage>(`/api/app-events?limit=${PAGE_SIZE}&offset=${compact ? 0 : offset}`);
         if (active) {
-          setEvents(rows);
+          setEvents(page.events);
+          setTotal(page.total);
           setError(null);
         }
       } catch (caught) {
@@ -36,6 +47,7 @@ export function LiveAppEvents() {
         }
       } finally {
         pending = false;
+        if (active) setLoading(false);
       }
     };
 
@@ -46,10 +58,10 @@ export function LiveAppEvents() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [compact, offset]);
 
-  const visibleEvents = events.slice(0, 5);
-  const olderEvents = events.slice(5);
+  const firstVisible = total === 0 ? 0 : offset + 1;
+  const lastVisible = Math.min(offset + events.length, total);
 
   return (
     <Card className="overflow-hidden">
@@ -76,27 +88,32 @@ export function LiveAppEvents() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {visibleEvents.map((event) => <EventRow key={event.eventId} event={event} />)}
+            {events.map((event) => <EventRow key={event.eventId} event={event} />)}
             {events.length === 0 ? (
-              <tr><td colSpan={3} className="px-5 py-4 text-ink-soft">No app events received yet.</td></tr>
+              <tr><td colSpan={3} className="px-5 py-4 text-ink-soft">{loading ? 'Loading app events…' : 'No app events received yet.'}</td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
 
-      {olderEvents.length > 0 ? (
-        <details className="border-t border-line">
-          <summary className="cursor-pointer px-5 py-3 text-sm text-ink-soft hover:text-ink">
-            Show {olderEvents.length} older {olderEvents.length === 1 ? 'event' : 'events'}
-          </summary>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-line">
-                {olderEvents.map((event) => <EventRow key={event.eventId} event={event} />)}
-              </tbody>
-            </table>
+      {compact && onViewAll ? (
+        <div className="border-t border-line px-5 py-3">
+          <Button variant="quiet" onClick={onViewAll}>View all events</Button>
+        </div>
+      ) : null}
+
+      {!compact && total > 0 ? (
+        <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+          <span className="text-sm text-ink-soft">Showing {firstVisible}–{lastVisible} of {total}</span>
+          <div className="flex gap-2">
+            <Button variant="quiet" className="px-3 py-1.5" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+              Previous
+            </Button>
+            <Button variant="quiet" className="px-3 py-1.5" disabled={offset + PAGE_SIZE >= total || loading} onClick={() => setOffset(offset + PAGE_SIZE)}>
+              Next
+            </Button>
           </div>
-        </details>
+        </div>
       ) : null}
     </Card>
   );

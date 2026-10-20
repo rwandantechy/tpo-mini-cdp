@@ -20,6 +20,7 @@ import {
 } from "../../components/ui.tsx";
 import { api, ApiError } from "../../lib/api.ts";
 import { formatDate } from "../../lib/format.ts";
+import { LiveAppEvents } from './LiveAppEvents.tsx';
 interface ImportRun {
   source: string;
   status: string;
@@ -85,7 +86,7 @@ function tally(counts: Record<string, number>): string {
     .join(", ");
 }
 
-export function Dashboard() {
+export function Dashboard({ onViewLiveEvents }: { onViewLiveEvents: () => void }) {
   const [overview, setOverview] = useState<Overview | null>(() => cachedOverview);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -176,6 +177,8 @@ export function Dashboard() {
           />
         </dl>
       </Card>
+
+      <LiveAppEvents compact onViewAll={onViewLiveEvents} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
