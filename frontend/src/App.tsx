@@ -1,16 +1,18 @@
 import { useState, type ComponentType } from 'react';
 
-import { LayersIcon, LayoutIcon, MessageIcon, UsersIcon } from './components/icons.tsx';
+import { ActivityIcon, LayersIcon, LayoutIcon, MessageIcon, UsersIcon } from './components/icons.tsx';
 import { Button, Notice, Spinner } from './components/ui.tsx';
 import { SignIn } from './features/auth/SignIn.tsx';
 import { useSession } from './features/auth/useSession.ts';
 import { Assistant } from './features/assistant/Assistant.tsx';
 import { Dashboard } from './features/overview/Dashboard.tsx';
+import { LiveAppEvents } from './features/overview/LiveAppEvents.tsx';
 import { Segments } from './features/segments/Segments.tsx';
 import { People } from './features/subscribers/People.tsx';
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutIcon },
+  { id: 'app-events', label: 'Live Events', icon: ActivityIcon },
   { id: 'people', label: 'People', icon: UsersIcon },
   { id: 'segments', label: 'Segments', icon: LayersIcon },
   { id: 'assistant', label: 'Ask', icon: MessageIcon },
@@ -93,12 +95,19 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
               <Dashboard />
             </div>
           ) : null}
+          {screen === 'app-events' ? (
+            <div className="h-full overflow-auto p-4 sm:p-6">
+              <div className="mx-auto max-w-6xl">
+                <LiveAppEvents />
+              </div>
+            </div>
+          ) : null}
           {screen === 'people' ? <People /> : null}
           {screen === 'segments' ? <Segments /> : null}
           {screen === 'assistant' ? <Assistant /> : null}
         </main>
 
-        <nav className="grid grid-cols-4 border-t border-line bg-surface md:hidden">
+        <nav className="grid grid-cols-5 border-t border-line bg-surface md:hidden">
           {NAV.map((item) => (
             <Tab key={item.id} active={screen === item.id} icon={item.icon} onClick={() => setScreen(item.id)}>
               {item.label}
