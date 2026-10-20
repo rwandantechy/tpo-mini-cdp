@@ -87,7 +87,8 @@ export function subscriberStatement(records: readonly SubscriberRecord[]): { tex
       min(v.email_original collate "C"),
       min(v.signup_date),
       case when bool_or(v.status = 'unsubscribed') then 'unsubscribed' else 'active' end,
-      (array_agg(v.acquisition_source order by v.signup_date asc nulls last, v.acquisition_source collate "C" asc))[1],
+      (array_agg(v.acquisition_source order by v.signup_date asc nulls last, v.acquisition_source collate "C" asc)
+        filter (where v.acquisition_source is not null))[1],
       max(v.last_open_date)
     from (values ${clause})
       as v (email_normalized, email_original, signup_date, status, acquisition_source, last_open_date)
@@ -104,7 +105,7 @@ export function subscriberStatement(records: readonly SubscriberRecord[]): { tex
       acquisition_source = case
                              when excluded.signup_date is not null
                                   and (s.signup_date is null or excluded.signup_date < s.signup_date)
-                               then excluded.acquisition_source
+                               then coalesce(excluded.acquisition_source, s.acquisition_source)
                              when excluded.signup_date is not distinct from s.signup_date
                                then least(s.acquisition_source collate "C", excluded.acquisition_source collate "C")
                              else s.acquisition_source
@@ -240,8 +241,17 @@ export async function identifyWebVisitors(
       insert into web_visitors as w (visitor_id, subscriber_id, identified_at, first_seen_at, last_seen_at)
       select visitor_id, subscriber_id, occurred_at, occurred_at, occurred_at from owner
       on conflict (visitor_id) do update set
-        subscriber_id = coalesce(w.subscriber_id, excluded.subscriber_id),
+        subscriber_id = case
+          when w.subscriber_id is null
+            or excluded.identified_at < w.identified_at
+            or (excluded.identified_at = w.identified_at and excluded.subscriber_id < w.subscriber_id)
+            then excluded.subscriber_id
+          else w.subscriber_id
+        end,
         identified_at = least(w.identified_at, excluded.identified_at)
+      where w.subscriber_id is null
+         or excluded.identified_at < w.identified_at
+         or (excluded.identified_at = w.identified_at and excluded.subscriber_id < w.subscriber_id)
       returning true as linked
       `,
       params,

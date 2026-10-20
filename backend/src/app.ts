@@ -28,7 +28,10 @@ import { appEventsRouter } from './routes/appEvents.js';
 export function createApp(): Express {
   const env = getServerEnv();
   const app = express();
-  app.use(morganLogger(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+  morganLogger.token('safe-url', (req) => req.path);
+  app.use(morganLogger(env.NODE_ENV === 'production'
+    ? ':remote-addr :method :safe-url :status :res[content-length] - :response-time ms'
+    : ':method :safe-url :status :response-time ms'));
 // Disable the X-Powered-By header.
 app.disable("x-powered-by");
 

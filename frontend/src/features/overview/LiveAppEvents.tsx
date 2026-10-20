@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIcon } from '../../components/icons.tsx';
 import { Button, Card, Notice, PageHeader } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
+import { formatWhen } from '../../lib/format.ts';
 
 interface LiveAppEvent {
   eventId: string;
@@ -121,6 +122,7 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
         <table className="w-full text-sm">
           <thead className="bg-surface-muted text-left text-ink-soft">
             <tr>
+              <th className="px-5 py-2">Received</th>
               <th className="px-5 py-2">Event</th>
               <th className="px-5 py-2">Device</th>
               <th className="px-5 py-2">Subscriber</th>
@@ -129,7 +131,7 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
           <tbody className="divide-y divide-line">
             {events.map((event) => <EventRow key={event.eventId} event={event} />)}
             {events.length === 0 ? (
-              <tr><td colSpan={3} className="px-5 py-8 text-center text-ink-soft">{loading ? 'Loading app events…' : 'No app events received yet.'}</td></tr>
+              <tr><td colSpan={4} className="px-5 py-8 text-center text-ink-soft">{loading ? 'Loading app events…' : 'No app events received yet.'}</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -162,6 +164,7 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
 function EventRow({ event }: { event: LiveAppEvent }) {
   return (
     <tr>
+      <td className="whitespace-nowrap px-5 py-3 text-ink-soft">{formatWhen(event.receivedAt)}</td>
       <td className="px-5 py-3">{event.event}</td>
       <td className="px-5 py-3">{event.deviceId}</td>
       <td className="px-5 py-3">{event.subscriber}</td>

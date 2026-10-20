@@ -1,17 +1,18 @@
 // src/app.ts
-
-
-
-
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-import helmet from "helmet";
+import morganLogger from "morgan";
 
 // src/config/constants.ts
 var REFERENCE_DATE = "2026-09-28";
 var COLD_WINDOW_DAYS = 30;
-var APP_EVENT_NAMES = ["app_open", "read_story", "link_click", "login"];
+var APP_EVENT_NAMES = [
+  "app_open",
+  "read_story",
+  "link_click",
+  "login"
+];
 var APP_USER_ORIGIN = {
   csv: "csv",
   webhook: "webhook"
@@ -27,8 +28,10 @@ var ACQUISITION_SOURCES = [
   "Referral",
   "X"
 ];
-// constants for the app 
-var SUBSCRIBER_STATUSES = ["active", "unsubscribed"];
+var SUBSCRIBER_STATUSES = [
+  "active",
+  "unsubscribed"
+];
 var DEFAULT_PORT = 4e3;
 var DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 var DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
@@ -44,7 +47,6 @@ var OVERVIEW_PAGE_LIMIT = 8;
 var ASSISTANT_QUESTION_MAX_LENGTH = 500;
 var ASSISTANT_ANSWER_MAX_LENGTH = 4e3;
 var ASSISTANT_HISTORY_TURNS = 6;
-var ASSISTANT_TOOL_ROUNDS = 4;
 var ASSISTANT_DEADLINE_MS = 25e3;
 var ASSISTANT_TABLE_LIMIT = 15;
 var SEGMENT_NAME_MAX_LENGTH = 120;
@@ -52,21 +54,39 @@ var INSTAGRAM_COLD_PRESET = {
   acquisitionSource: "Instagram",
   lastOpen: "cold"
 };
+var INSTAGRAM_COLD_SEGMENT_NAME = "Instagram subscribers who haven't opened in 30 days";
 var ENGAGED_PRESET = {
   status: "active",
   hasWebsite: true,
   hasApp: true
 };
+var ENGAGED_SEGMENT_NAME = "Most engaged readers";
 var JSON_BODY_LIMIT = "16kb";
 var DB_POOL_MAX = 10;
 var DB_IDLE_TIMEOUT_MS = 3e4;
 var DB_CONNECT_TIMEOUT_MS = 1e4;
 var SLOW_QUERY_MS = 500;
 var RATE_LIMITS = {
-  login: { windowMs: 15 * 6e4, limit: 10 },
-  api: { windowMs: 6e4, limit: 300 },
-  webhook: { windowMs: 6e4, limit: 600 },
-  assistant: { windowMs: 6e4, limit: 15 }
+  // Allow 10 login attempts every 15 minutes.
+  login: {
+    windowMs: 15 * 6e4,
+    limit: 10
+  },
+  // Allow 300 general API requests per minute.
+  api: {
+    windowMs: 6e4,
+    limit: 300
+  },
+  // Allow up to 600 incoming webhook requests per minute.
+  webhook: {
+    windowMs: 6e4,
+    limit: 600
+  },
+  // Limit assistant requests to reduce excessive LLM usage.
+  assistant: {
+    windowMs: 6e4,
+    limit: 15
+  }
 };
 
 // src/config/env.ts
@@ -74,20 +94,43 @@ import { z } from "zod";
 var databaseSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DATABASE_SSL: z.enum(["require", "no-verify", "disable"]).default("require"),
-  /** Path to the CA, relative to the repo root. Needed for Supabase TLS. */
+  // Optional CA certificate path for database TLS verification.
   DATABASE_CA_CERT: z.string().min(1).optional()
 });
 var serverSchema = databaseSchema.extend({
   NODE_ENV: z.enum(["development", "test", "production"]),
   PORT: z.coerce.number().int().positive().default(DEFAULT_PORT),
-  SESSION_SECRET: z.string().min(SECRET_MIN_LENGTH, `SESSION_SECRET must be at least ${SECRET_MIN_LENGTH} characters`),
-  APP_PASSWORD_HASH: z.string().regex(/^scrypt:[0-9a-f]+:[0-9a-f]+$/, "APP_PASSWORD_HASH must look like scrypt:<salt>:<key>"),
-  WEBHOOK_SECRET: z.string().min(SECRET_MIN_LENGTH, `WEBHOOK_SECRET must be at least ${SECRET_MIN_LENGTH} characters`),
+  // Secrets used for sessions, authentication, and webhooks.
+  SESSION_SECRET: z.string().min(
+    SECRET_MIN_LENGTH,
+    `SESSION_SECRET must be at least ${SECRET_MIN_LENGTH} characters`
+  ),
+  APP_PASSWORD_HASH: z.string().regex(
+    /^scrypt:[0-9a-f]+:[0-9a-f]+$/,
+    "APP_PASSWORD_HASH must look like scrypt:<salt>:<key>"
+  ),
+  WEBHOOK_SECRET: z.string().min(
+    SECRET_MIN_LENGTH,
+    `WEBHOOK_SECRET must be at least ${SECRET_MIN_LENGTH} characters`
+  ),
   WEBHOOK_URL: z.string().url().optional(),
-  CORS_ORIGINS: z.string().min(1, "CORS_ORIGINS is required").refine((value) => value.split(",").some((origin) => origin.trim().length > 0), "CORS_ORIGINS must list at least one origin"),
+  // Only allow valid HTTP or HTTPS frontend origins.
+  CORS_ORIGINS: z.string().min(1, "CORS_ORIGINS is required").refine((value) => {
+    const origins = value.split(",").map((origin) => origin.trim());
+    return origins.every((origin) => {
+      try {
+        const url = new URL(origin);
+        return ["http:", "https:"].includes(url.protocol) && url.origin === origin;
+      } catch {
+        return false;
+      }
+    });
+  }, "CORS_ORIGINS must contain valid HTTP or HTTPS origins"),
+  // Cookie security and reverse proxy settings.
   COOKIE_SAMESITE: z.enum(["lax", "strict", "none"]),
   COOKIE_SECURE: z.enum(["true", "false"]).transform((value) => value === "true"),
   TRUST_PROXY: z.enum(["true", "false"]).transform((value) => value === "true"),
+  // Gemini is the current LLM provider.
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_MODEL: z.string().min(1).default(DEFAULT_GEMINI_MODEL),
   GEMINI_FALLBACK_MODEL: z.string().min(1).default(DEFAULT_GEMINI_FALLBACK_MODEL)
@@ -99,19 +142,30 @@ var serverSchema = databaseSchema.extend({
       message: "COOKIE_SECURE must be true when COOKIE_SAMESITE is none"
     });
   }
+  if (data.NODE_ENV === "production" && data.DATABASE_SSL !== "require") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["DATABASE_SSL"],
+      message: "DATABASE_SSL must be require in production"
+    });
+  }
 });
 var cachedServerEnv = null;
 function formatIssues(error) {
-  return error.issues.map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`).join("\n");
+  return error.issues.map(
+    (issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`
+  ).join("\n");
 }
 function getServerEnv() {
   if (cachedServerEnv) return cachedServerEnv;
   const parsed = serverSchema.safeParse(process.env);
   if (!parsed.success) {
-    throw new Error(`Invalid environment configuration:
+    throw new Error(
+      `Invalid environment configuration:
 ${formatIssues(parsed.error)}
 
-See .env.example.`);
+See .env.example.`
+    );
   }
   cachedServerEnv = parsed.data;
   return cachedServerEnv;
@@ -119,10 +173,15 @@ See .env.example.`);
 function getDatabaseEnv() {
   const parsed = databaseSchema.safeParse(process.env);
   if (!parsed.success) {
-    throw new Error(`Invalid database configuration:
+    throw new Error(
+      `Invalid database configuration:
 ${formatIssues(parsed.error)}
 
-See .env.example.`);
+See .env.example.`
+    );
+  }
+  if (process.env.NODE_ENV === "production" && parsed.data.DATABASE_SSL !== "require") {
+    throw new Error("DATABASE_SSL must be require in production");
   }
   return parsed.data;
 }
@@ -207,12 +266,21 @@ var log = {
 // src/middleware/errorHandler.ts
 import { ZodError } from "zod";
 var notFoundHandler = (req, res) => {
-  res.status(404).json({ error: { code: "not_found", message: `No route for ${req.method} ${req.path}.` } });
+  res.status(404).json({
+    error: {
+      code: "not_found",
+      message: `No route for ${req.method} ${req.path}.`
+    }
+  });
 };
 var errorHandler = (error, req, res, _next) => {
   if (error instanceof AppError) {
     res.status(error.status).json({
-      error: { code: error.code, message: error.message, ...error.details ? { details: error.details } : {} }
+      error: {
+        code: error.code,
+        message: error.message,
+        ...error.details ? { details: error.details } : {}
+      }
     });
     return;
   }
@@ -230,7 +298,12 @@ var errorHandler = (error, req, res, _next) => {
     return;
   }
   if (typeof error === "object" && error !== null && error.type === "entity.too.large") {
-    res.status(413).json({ error: { code: "payload_too_large", message: "That request body is too large." } });
+    res.status(413).json({
+      error: {
+        code: "payload_too_large",
+        message: "That request body is too large."
+      }
+    });
     return;
   }
   log.error("unhandled error", {
@@ -240,7 +313,10 @@ var errorHandler = (error, req, res, _next) => {
     stack: error instanceof Error ? error.stack : void 0
   });
   res.status(500).json({
-    error: { code: "internal_error", message: "Something broke on our side. Please try again." }
+    error: {
+      code: "internal_error",
+      message: "Something broke on our side. Please try again."
+    }
   });
 };
 
@@ -253,17 +329,41 @@ function limiter(windowMs, limit, label, message) {
     standardHeaders: "draft-7",
     legacyHeaders: false,
     handler: (req, _res, next) => {
-      log.warn("rate limit hit", { limiter: label, method: req.method, path: req.path });
+      log.warn("rate limit hit", {
+        limiter: label,
+        method: req.method,
+        path: req.path
+      });
       next(tooManyRequests(message));
     }
   });
 }
 function createLimiters() {
   return {
-    login: limiter(RATE_LIMITS.login.windowMs, RATE_LIMITS.login.limit, "login", "Too many sign-in attempts. Try again in a few minutes."),
-    api: limiter(RATE_LIMITS.api.windowMs, RATE_LIMITS.api.limit, "api", "Slow down a moment, then try again."),
-    webhook: limiter(RATE_LIMITS.webhook.windowMs, RATE_LIMITS.webhook.limit, "webhook", "Event rate limit exceeded."),
-    assistant: limiter(RATE_LIMITS.assistant.windowMs, RATE_LIMITS.assistant.limit, "assistant", "The assistant is busy. Give it a minute.")
+    login: limiter(
+      RATE_LIMITS.login.windowMs,
+      RATE_LIMITS.login.limit,
+      "login",
+      "Too many sign-in attempts. Try again in a few minutes."
+    ),
+    api: limiter(
+      RATE_LIMITS.api.windowMs,
+      RATE_LIMITS.api.limit,
+      "api",
+      "Slow down a moment, then try again."
+    ),
+    webhook: limiter(
+      RATE_LIMITS.webhook.windowMs,
+      RATE_LIMITS.webhook.limit,
+      "webhook",
+      "Event rate limit exceeded."
+    ),
+    assistant: limiter(
+      RATE_LIMITS.assistant.windowMs,
+      RATE_LIMITS.assistant.limit,
+      "assistant",
+      "The assistant is busy. Give it a minute."
+    )
   };
 }
 
@@ -301,7 +401,10 @@ function verifySessionToken(secret, token, nowSeconds = Math.floor(Date.now() / 
 // src/middleware/requireAuth.ts
 var requireAuth = (req, _res, next) => {
   const env = getServerEnv();
-  const session = verifySessionToken(env.SESSION_SECRET, req.cookies?.[SESSION_COOKIE]);
+  const session = verifySessionToken(
+    env.SESSION_SECRET,
+    req.cookies?.[SESSION_COOKIE]
+  );
   if (!session) {
     next(unauthorized());
     return;
@@ -358,7 +461,10 @@ var verifyWebhookRequest = (req, _res, next) => {
     signature: req.header(SIGNATURE_HEADER)
   });
   if (!result.ok) {
-    log.warn("webhook signature rejected", { reason: result.reason, bytes: rawBody.length });
+    log.warn("webhook signature rejected", {
+      reason: result.reason,
+      bytes: rawBody.length
+    });
     next(unauthorized("Invalid webhook signature."));
     return;
   }
@@ -375,34 +481,6 @@ var verifyWebhookRequest = (req, _res, next) => {
 // src/routes/assistant.ts
 import { Router } from "express";
 import { z as z4 } from "zod";
-
-// src/lib/dates.ts
-var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-function referenceDate() {
-  return REFERENCE_DATE;
-}
-function isIsoDate(value) {
-  if (typeof value !== "string" || !ISO_DATE.test(value)) return false;
-  const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-function daysBeforeReference(days) {
-  if (!Number.isInteger(days) || days < 0) {
-    throw new RangeError(`days must be a non-negative integer, got ${days}`);
-  }
-  const base = /* @__PURE__ */ new Date(`${REFERENCE_DATE}T00:00:00Z`);
-  base.setUTCDate(base.getUTCDate() - days);
-  return base.toISOString().slice(0, 10);
-}
-function parseTimestamp(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  const csvForm = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(trimmed);
-  const candidate = csvForm ? `${csvForm[1]}T${csvForm[2]}Z` : trimmed;
-  const parsed = new Date(candidate);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 
 // src/lib/email.ts
 var EMAIL_SHAPE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
@@ -433,7 +511,9 @@ var EMAIL_IN_TEXT = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 var APP_USER_ID = /\bu_[0-9a-f]{6,}\b/i;
 var DEVICE_ID = /\bd_[0-9a-f]{4,}\b/i;
 var EVENT_ID = /\bevt_[0-9a-f-]{6,}\b/i;
-var PROPER_NAME = /\b[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}\b/g;
+var CAPITALIZED_NAME_PAIR = /\b([A-Z][a-z]{1,20})\s+([A-Z][a-z]{1,20})\b/g;
+var NAME_LOOKUP_PAIR = /\b(?:who\s+(?:is|was)|what\s+(?:did|has)|tell\s+me\s+about|look\s+up|find|show\s+me|about|named|called|profile\s+(?:for|of)|activity\s+(?:for|of)|details?\s+(?:for|about)|email\s+(?:for|of)|contact\s+(?:for|of)|subscriber\s+named|user\s+named)\s+([a-z]{2,21}\s+[a-z]{2,21})\b/gi;
+var NAME_DETAILS_PAIR = /\b([a-z]{2,21}\s+[a-z]{2,21})(?:'s)?\s+(?:email|profile|activity|opens?|clicks?|subscriber\s+record)\b/gi;
 var NAME_STOPWORDS = /* @__PURE__ */ new Set([
   "how",
   "what",
@@ -510,19 +590,140 @@ var NAME_STOPWORDS = /* @__PURE__ */ new Set([
   "traffic",
   "retention",
   "organic",
-  "visits"
+  "visits",
+  "many",
+  "went",
+  "days",
+  "list",
+  "build",
+  "hit",
+  "them",
+  "they",
+  "their",
+  "still",
+  "subscribed",
+  "are",
+  "was",
+  "were",
+  "been",
+  "have",
+  "has",
+  "had",
+  "not",
+  "opened",
+  "open",
+  "for",
+  "and",
+  "with",
+  "from",
+  "into",
+  "about",
+  "than",
+  "more",
+  "less",
+  "each",
+  "per",
+  "ago",
+  "since",
+  "just",
+  "only",
+  "also",
+  "all",
+  "out",
+  "get",
+  "got",
+  "did",
+  "does",
+  "can",
+  "show",
+  "give",
+  "make",
+  "save",
+  "create",
+  "break",
+  "down",
+  "explain",
+  "json",
+  "numbers",
+  "number",
+  "invent",
+  "use",
+  "markdown",
+  "allowed",
+  "never",
+  "write",
+  "email",
+  "mention",
+  "person",
+  "people",
+  "filters",
+  "filter",
+  "results",
+  "result",
+  "already",
+  "counted",
+  "counts",
+  "tool",
+  "object",
+  "those",
+  "these",
+  "there",
+  "then",
+  "that",
+  "this",
+  "in",
+  "on",
+  "at",
+  "to",
+  "by",
+  "or",
+  "an",
+  "be",
+  "is",
+  "it",
+  "as",
+  "if",
+  "no",
+  "so",
+  "up",
+  "we",
+  "us",
+  "done",
+  "lately",
+  "tell",
+  "me",
+  "please",
+  "look",
+  "ask",
+  "try",
+  "one",
+  "of",
+  "do"
 ]);
 function hasEmail(text) {
   const matches = text.match(EMAIL_IN_TEXT) ?? [];
   return matches.some((raw) => parseEmail(raw.replace(/[.,;:)>\]]+$/, "")).ok);
 }
 function hasPersonName(text) {
-  const matches = text.match(PROPER_NAME) ?? [];
-  return matches.some((pair) => {
-    const [first, last] = pair.split(/\s+/);
-    if (!first || !last) return false;
-    return !NAME_STOPWORDS.has(first.toLowerCase()) && !NAME_STOPWORDS.has(last.toLowerCase());
-  });
+  if (hasCapitalizedPersonName(text)) return true;
+  const isNamePair = (pair) => {
+    if (!pair) return false;
+    const [first, last] = pair.toLowerCase().split(/\s+/);
+    return Boolean(first && last && !NAME_STOPWORDS.has(first) && !NAME_STOPWORDS.has(last));
+  };
+  const standaloneName = text.trim().match(/^([a-z]{2,21}\s+[a-z]{2,21})[.!?]?$/i);
+  if (isNamePair(standaloneName?.[1])) return true;
+  return [NAME_LOOKUP_PAIR, NAME_DETAILS_PAIR].some(
+    (pattern) => [...text.matchAll(pattern)].some((match) => isNamePair(match[1]))
+  );
+}
+function hasCapitalizedPersonName(text) {
+  for (const match of text.matchAll(CAPITALIZED_NAME_PAIR)) {
+    const first = match[1]?.toLowerCase();
+    const last = match[2]?.toLowerCase();
+    if (first && last && !NAME_STOPWORDS.has(first) && !NAME_STOPWORDS.has(last)) return true;
+  }
+  return false;
 }
 function findPii(text, options = {}) {
   const names = options.names ?? true;
@@ -545,11 +746,166 @@ function assertNoPii(payload) {
   }
 }
 
-// src/services/assistant/gemini.ts
-import {
-  createPartFromFunctionResponse,
-  GoogleGenAI
-} from "@google/genai";
+// src/lib/dates.ts
+var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+function referenceDate() {
+  return REFERENCE_DATE;
+}
+function isIsoDate(value) {
+  if (typeof value !== "string" || !ISO_DATE.test(value)) return false;
+  const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+function daysBeforeReference(days) {
+  if (!Number.isInteger(days) || days < 0) {
+    throw new RangeError(`days must be a non-negative integer, got ${days}`);
+  }
+  const base = /* @__PURE__ */ new Date(`${REFERENCE_DATE}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() - days);
+  return base.toISOString().slice(0, 10);
+}
+function parseTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  const csvForm = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(trimmed);
+  const candidate = csvForm ? `${csvForm[1]}T${csvForm[2]}Z` : trimmed;
+  const parsed = new Date(candidate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// src/services/assistant/plan.ts
+var UNSUPPORTED_ANSWER = "I can answer totals, sources, pages, and saved segments. Try one of the suggested questions.";
+function planQuestion(question, history = []) {
+  const text = question.trim();
+  if (text.length === 0) return { ok: false, reason: "empty" };
+  if (findPii(text).length > 0) return { ok: false, reason: "pii" };
+  const planned = classify(text, priorDefinition(history));
+  if (!planned) return { ok: false, reason: "unsupported" };
+  return planned;
+}
+function priorDefinition(history) {
+  let filters;
+  for (const turn of history) {
+    if (findPii(turn.question).length > 0) continue;
+    const planned = classify(turn.question, filters);
+    if (planned?.ok && planned.definition) filters = planned.definition;
+  }
+  return filters;
+}
+function classify(question, prior) {
+  const text = question.toLowerCase();
+  if (isFirstPages(text)) {
+    return { ok: true, tool: "first_pages_for_new_subscribers", args: {} };
+  }
+  if (isBreakdown(text)) {
+    return { ok: true, tool: "subscriber_breakdown", args: {} };
+  }
+  if (isTopPages(text)) {
+    return { ok: true, tool: "top_pages", args: {} };
+  }
+  const definition = definitionFrom(text, prior);
+  if (isSnapshot(text, definition)) {
+    return { ok: true, tool: "get_snapshot", args: {} };
+  }
+  if (!hasFilter(definition)) return null;
+  if (isSave(text)) {
+    return {
+      ok: true,
+      tool: "save_segment",
+      args: { name: segmentName(definition), definition },
+      definition
+    };
+  }
+  return {
+    ok: true,
+    tool: "count_segment",
+    args: { ...definition },
+    definition
+  };
+}
+function isFirstPages(text) {
+  return /\bpages?\b/.test(text) && /\b(first|hit)\b/.test(text);
+}
+function isTopPages(text) {
+  return /\btop pages\b/.test(text) || /\bmost viewed\b/.test(text);
+}
+function isBreakdown(text) {
+  return /\bbreak ?down\b/.test(text) || /\bby source\b/.test(text) || /\bunsubscribe rate\b/.test(text) || /\bsource mix\b/.test(text);
+}
+function isSnapshot(text, definition) {
+  if (hasFilter(definition)) return false;
+  return /\b(overview|snapshot|headline)\b/.test(text) || /\bhow many\b/.test(text) && /\bsubscribers\b/.test(text);
+}
+function isSave(text) {
+  return /\b(save|build|create)\b/.test(text) && /\b(list|segment)\b/.test(text);
+}
+function definitionFrom(text, prior) {
+  const definition = {};
+  if (/\bengaged\b/.test(text)) {
+    Object.assign(definition, ENGAGED_PRESET);
+  }
+  const source = sourceIn(text);
+  if (source) definition.acquisitionSource = source;
+  if (/\bunsubscrib/.test(text)) {
+    definition.status = "unsubscribed";
+  } else if (/\bactive\b/.test(text) || /\bstill subscribed\b/.test(text) || /\bsubscribed\b/.test(text)) {
+    definition.status = "active";
+  }
+  if (/\bcold\b|have not opened|haven't opened|havent opened|no open|not opened|inactive/.test(text)) {
+    definition.lastOpen = "cold";
+  } else if (/\bnever opened\b|\bnever open\b/.test(text)) {
+    definition.lastOpen = "never";
+  }
+  if (/\bwebsite\b/.test(text) && /\bapp\b/.test(text)) {
+    definition.hasWebsite = true;
+    definition.hasApp = true;
+  }
+  if (wantsSignupWindow(text)) {
+    definition.signupFrom = daysBeforeReference(COLD_WINDOW_DAYS);
+    definition.signupTo = REFERENCE_DATE;
+  }
+  if (/\b(them|those|they|their)\b/.test(text) && prior) {
+    definition.acquisitionSource ??= prior.acquisitionSource;
+    definition.status ??= prior.status;
+    definition.lastOpen ??= prior.lastOpen;
+    definition.signupFrom ??= prior.signupFrom;
+    definition.signupTo ??= prior.signupTo;
+    if (definition.hasWebsite === void 0) {
+      definition.hasWebsite = prior.hasWebsite;
+    }
+    if (definition.hasApp === void 0) {
+      definition.hasApp = prior.hasApp;
+    }
+  }
+  return definition;
+}
+function wantsSignupWindow(text) {
+  if (/\bpages?\b/.test(text)) return false;
+  return /\b(signed up|sign-?up date|signups since|joined)\b/.test(text);
+}
+function sourceIn(text) {
+  if (/\btwitter\b/.test(text)) return "X";
+  return ACQUISITION_SOURCES.find(
+    (source) => new RegExp(`\\b${source}\\b`, "i").test(text)
+  );
+}
+function hasFilter(definition) {
+  return Object.values(definition).some((value) => value !== void 0);
+}
+function segmentName(definition) {
+  if (definition.status === ENGAGED_PRESET.status && definition.hasWebsite === true && definition.hasApp === true && !definition.acquisitionSource && !definition.lastOpen) {
+    return ENGAGED_SEGMENT_NAME;
+  }
+  if (definition.acquisitionSource === "Instagram" && definition.lastOpen === "cold" && !definition.signupFrom && !definition.status) {
+    return INSTAGRAM_COLD_SEGMENT_NAME;
+  }
+  return [
+    definition.acquisitionSource,
+    definition.status,
+    definition.lastOpen === "cold" ? "cold" : void 0
+  ].filter(Boolean).join(", ");
+}
 
 // src/services/assistant/tools.ts
 import { z as z3 } from "zod";
@@ -865,23 +1221,23 @@ async function listSegments() {
 }
 async function saveSegment(name, definition, createdBy) {
   const payload = JSON.stringify(definition);
-  const existing = await queryOne(
-    `
-    update segments
-    set name = $1, definition = $2::jsonb
-    where lower(name) = lower($1)
-    returning id, name, definition, created_at
-    `,
-    [name, payload]
-  );
-  const row = existing ?? await queryOne(
-    `
-      insert into segments (name, definition, created_by)
-      values ($1, $2::jsonb, $3)
-      returning id, name, definition, created_at
-      `,
-    [name, payload, createdBy]
-  );
+  const row = await withTransaction(async (client) => {
+    await client.query("select pg_advisory_xact_lock(hashtext(lower($1)))", [name]);
+    const existing = await client.query(
+      `update segments set name = $1, definition = $2::jsonb
+       where lower(name) = lower($1)
+       returning id, name, definition, created_at`,
+      [name, payload]
+    );
+    if (existing.rows[0]) return existing.rows[0];
+    const inserted = await client.query(
+      `insert into segments (name, definition, created_by)
+       values ($1, $2::jsonb, $3)
+       returning id, name, definition, created_at`,
+      [name, payload, createdBy]
+    );
+    return inserted.rows[0];
+  });
   if (!row) throw new Error("Segment save returned no row.");
   return {
     id: row.id,
@@ -1084,6 +1440,7 @@ async function firstPagesForNewSubscribers(days = COLD_WINDOW_DAYS, limit = ASSI
       join subscribers s on s.id = v.subscriber_id
       where s.signup_date is not null
         and s.signup_date >= $1::date
+        and e.occurred_at >= s.signup_date::timestamptz
       order by v.subscriber_id, e.occurred_at
     )
     select page, count(*) as readers
@@ -1113,15 +1470,24 @@ var firstPagesSchema = z3.object({
 var SEGMENT_FILTER_PROPERTIES = {
   acquisitionSource: {
     type: "string",
-    description: "Exact source: Direct, Facebook, Google, Instagram, Podcast, Referral, or X."
+    description: "Use one of these sources: Direct, Facebook, Google, Instagram, Podcast, Referral, or X."
   },
-  status: { type: "string", description: "active or unsubscribed" },
-  signupFrom: { type: "string", description: "Only if they asked about signup date. ISO date." },
-  signupTo: { type: "string", description: "Only if they asked about signup date. ISO date." },
+  status: {
+    type: "string",
+    description: "Subscriber status: active or unsubscribed."
+  },
+  signupFrom: {
+    type: "string",
+    description: "Only use this when asking about signup dates. Format: YYYY-MM-DD."
+  },
+  signupTo: {
+    type: "string",
+    description: "Only use this when asking about signup dates. Format: YYYY-MM-DD."
+  },
   lastOpen: {
     type: "string",
     enum: ["any", "never", "cold"],
-    description: "cold = no open in 30 days. Independent of signup date."
+    description: "Cold means no newsletter open in the past 30 days. It is not based on signup date."
   },
   hasWebsite: { type: "boolean" },
   hasApp: { type: "boolean" }
@@ -1129,17 +1495,17 @@ var SEGMENT_FILTER_PROPERTIES = {
 var TOOL_DECLARATIONS = [
   {
     name: "get_snapshot",
-    description: "Headline counts for subscribers, website, and app. Includes Instagram cold (last open, not signup date).",
+    description: "Overall subscriber, website, and app counts. Also includes Instagram subscribers who have not opened recently.",
     parametersJsonSchema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
     name: "subscriber_breakdown",
-    description: "One row per acquisition source with total, active, unsubscribed, unsubscribe rate, and share of all subscribers, largest first.",
+    description: "Show subscribers by acquisition source, including active and unsubscribed counts, unsubscribe rates, and share of the total. Largest sources come first.",
     parametersJsonSchema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
     name: "top_pages",
-    description: "Most viewed website pages, as counts only.",
+    description: "Show the most visited website pages and their view counts.",
     parametersJsonSchema: {
       type: "object",
       properties: { limit: { type: "integer", minimum: 1, maximum: ASSISTANT_TABLE_LIMIT } },
@@ -1148,7 +1514,7 @@ var TOOL_DECLARATIONS = [
   },
   {
     name: "first_pages_for_new_subscribers",
-    description: "Which pages people hit first after signing up, as counts. days is how far back from the assessment date.",
+    description: "Count which pages subscribers visited first after signing up. The number of days is measured back from the assessment date.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -1160,7 +1526,7 @@ var TOOL_DECLARATIONS = [
   },
   {
     name: "count_segment",
-    description: "How many subscribers match a filter. lastOpen=cold is last newsletter open, not signup date. Returns a total, never a list of people.",
+    description: "Count subscribers who match the chosen filters. Cold refers to the last newsletter open, not signup date. Return the count, not individual subscribers.",
     parametersJsonSchema: {
       type: "object",
       properties: SEGMENT_FILTER_PROPERTIES,
@@ -1169,7 +1535,7 @@ var TOOL_DECLARATIONS = [
   },
   {
     name: "save_segment",
-    description: "Save a named segment so Growth can open the people in the app. Returns the size only, not emails.",
+    description: "Save a named group of subscribers so it can be viewed in the app. Return the group size without sharing email addresses.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -1222,7 +1588,7 @@ async function execute(name, args, createdBy) {
       return { ok: true, data: { rows: table.rows }, table };
     }
     case "count_segment": {
-      const definition = countDefinition(args);
+      const definition = segmentDefinitionSchema.parse(normalizeFilters(args));
       const counted = await countSegment(definition);
       return {
         ok: true,
@@ -1231,8 +1597,8 @@ async function execute(name, args, createdBy) {
       };
     }
     case "save_segment": {
-      const { name: segmentName, definition } = parseSave(args);
-      return saveNamedSegment(segmentName, definition, createdBy);
+      const { name: segmentName2, definition } = parseSave(args);
+      return saveNamedSegment(segmentName2, definition, createdBy);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -1259,13 +1625,6 @@ function parseSave(args) {
   const raw = nested && typeof nested === "object" && !Array.isArray(nested) ? nested : args;
   return saveSchema.parse({ name: args.name, definition: normalizeFilters(raw) });
 }
-function countDefinition(args) {
-  const definition = segmentDefinitionSchema.parse(normalizeFilters(args));
-  const cutoff = daysBeforeReference(COLD_WINDOW_DAYS);
-  if (definition.lastOpen !== "cold" || definition.signupFrom !== cutoff) return definition;
-  const { signupFrom: _from, signupTo: _to, ...rest } = definition;
-  return rest;
-}
 function normalizeFilters(args) {
   const next = { ...args };
   if (typeof next.acquisitionSource === "string") {
@@ -1291,18 +1650,194 @@ function matchingTable(definition, counted) {
   return { title: title || "Matching subscribers", rows: [row] };
 }
 
-// src/services/assistant/gemini.ts
+// src/services/assistant/ask.ts
+var PII_REFUSAL = "I can't look up a specific person. Ask about totals, sources, pages, or a segment.";
+var FILTER_KEYS = [
+  "acquisitionSource",
+  "status",
+  "signupFrom",
+  "signupTo",
+  "lastOpen",
+  "hasWebsite",
+  "hasApp"
+];
+var ROW_KEYS = [
+  "source",
+  "total",
+  "active",
+  "unsubscribed",
+  "unsubRate",
+  "share",
+  "page",
+  "views",
+  "readers",
+  "status",
+  "lastOpen",
+  "signupFrom",
+  "signupTo",
+  "cutoff"
+];
+var SNAPSHOT_KEYS = [
+  "referenceDate",
+  "coldWindowDays",
+  "subscribers",
+  "active",
+  "unsubscribed",
+  "neverOpened",
+  "coldSinceCutoff",
+  "instagramCold",
+  "instagramColdActive",
+  "appAccounts",
+  "appLinked",
+  "appEvents",
+  "webVisitors",
+  "webIdentified",
+  "pageviews"
+];
+function systemInstruction() {
+  return [
+    "Explain the JSON counts.",
+    "Use only those numbers. Do not invent counts.",
+    "Cold is last open, not signup date.",
+    "Never write an email or a person.",
+    "Markdown is allowed."
+  ].join(" ");
+}
+function plainAnswer(text) {
+  return text.replace(/\n{3,}/g, "\n\n").trim().slice(0, ASSISTANT_ANSWER_MAX_LENGTH);
+}
+function narrationSummary(tool, result) {
+  const summary = { tool };
+  if (tool === "get_snapshot") {
+    for (const key of SNAPSHOT_KEYS) {
+      const value = result.data[key];
+      if (typeof value === "number" || typeof value === "string") summary[key] = value;
+    }
+  } else {
+    const filters = {};
+    for (const key of FILTER_KEYS) {
+      const value = result.data[key];
+      if (typeof value === "string" || typeof value === "boolean") filters[key] = value;
+    }
+    if (Object.keys(filters).length > 0) summary.filters = filters;
+    if (typeof result.data.total === "number") summary.total = result.data.total;
+    if (typeof result.data.cutoffDate === "string") summary.cutoffDate = result.data.cutoffDate;
+  }
+  if (result.table) {
+    summary.rows = result.table.rows.map((row) => {
+      const clean = {};
+      for (const key of ROW_KEYS) {
+        const value = row[key];
+        if (typeof value === "string" || typeof value === "number") clean[key] = value;
+      }
+      return clean;
+    });
+  }
+  return summary;
+}
+function narrationContents(summary) {
+  return [{ role: "user", parts: [{ text: JSON.stringify(summary) }] }];
+}
+function countedSentence(summary) {
+  if (typeof summary.total === "number") return `${summary.total.toLocaleString("en-US")}.`;
+  return "Here is what I found.";
+}
+async function ask(question, options) {
+  const plan = planQuestion(question, options.history ?? []);
+  if (!plan.ok) {
+    log.info("assistant question blocked", { reason: plan.reason });
+    return {
+      answer: plan.reason === "pii" ? PII_REFUSAL : plan.reason === "empty" ? "Ask a question about totals, pages, or segments." : UNSUPPORTED_ANSWER,
+      blocked: plan.reason === "pii",
+      tables: []
+    };
+  }
+  try {
+    const result = await runTool(plan.tool, plan.args, options.createdBy);
+    if (!result.ok) return { answer: "I could not answer that from the data.", blocked: false, tables: [] };
+    const summary = narrationSummary(plan.tool, result);
+    const contents = narrationContents(summary);
+    assertNoPii(summary);
+    assertNoPii(contents);
+    assertNoPii(systemInstruction());
+    let turn;
+    try {
+      turn = await options.gemini.generate({
+        model: options.model,
+        systemInstruction: systemInstruction(),
+        contents,
+        includeTools: false,
+        timeoutMs: ASSISTANT_DEADLINE_MS
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      log.warn("assistant narration failed", { error: error.message });
+      return {
+        answer: countedSentence(summary),
+        blocked: false,
+        tables: result.table ? [result.table] : [],
+        segment: result.segment
+      };
+    }
+    const answer = plainAnswer(turn.text || "");
+    if (!answer) {
+      log.info("assistant answer blocked", { reason: "empty" });
+      return { answer: PII_REFUSAL, blocked: true, tables: [] };
+    }
+    if (containsPii(answer)) {
+      const kinds = findPii(answer);
+      if (kinds.some((kind) => kind !== "name") || hasCapitalizedPersonName(answer)) {
+        log.info("assistant answer blocked", { reason: "pii" });
+        return { answer: PII_REFUSAL, blocked: true, tables: [] };
+      }
+      log.info("assistant answer replaced", { reason: "ambiguous_name_match" });
+      return {
+        answer: countedSentence(summary),
+        blocked: false,
+        tables: result.table ? [result.table] : [],
+        segment: result.segment
+      };
+    }
+    return {
+      answer,
+      blocked: false,
+      tables: result.table ? [result.table] : [],
+      segment: result.segment
+    };
+  } catch (error) {
+    if (error instanceof PiiBlockedError) {
+      log.info("assistant payload blocked", { kinds: error.kinds });
+      return { answer: PII_REFUSAL, blocked: true, tables: [] };
+    }
+    throw error;
+  }
+}
+
+// src/services/assistant/llm.ts
+import {
+  createPartFromFunctionResponse,
+  GoogleGenAI
+} from "@google/genai";
+var MODEL_ATTEMPT_MS = 12e3;
 function createGemini(apiKey, fallbackModel) {
   const ai = new GoogleGenAI({ apiKey });
   return {
     async generate(request) {
+      const budget = Math.max(1e3, request.timeoutMs ?? ASSISTANT_DEADLINE_MS);
+      const canFallback = Boolean(fallbackModel && fallbackModel !== request.model);
+      const primaryMs = canFallback ? Math.min(MODEL_ATTEMPT_MS, budget) : budget;
       try {
-        return await callModel(ai, request, request.model);
+        return await callModel(ai, { ...request, timeoutMs: primaryMs }, request.model);
       } catch (error) {
-        if (isGeminiCapacityError(error) && fallbackModel && fallbackModel !== request.model) {
-          log.warn("gemini primary unavailable, trying fallback", { model: fallbackModel });
+        const remaining = budget - primaryMs;
+        if (canFallback && shouldTryFallback(error) && remaining >= 1e3) {
+          log.warn("gemini primary failed, trying fallback", { model: fallbackModel });
           try {
-            return await callModel(ai, request, fallbackModel);
+            return await callModel(
+              ai,
+              { ...request, timeoutMs: Math.min(MODEL_ATTEMPT_MS, remaining) },
+              fallbackModel
+            );
           } catch (fallbackError) {
             throw unavailable(fallbackError);
           }
@@ -1311,11 +1846,6 @@ function createGemini(apiKey, fallbackModel) {
       }
     }
   };
-}
-function functionResponseParts(calls, results) {
-  return calls.map(
-    (call, index) => createPartFromFunctionResponse(call.id ?? call.name ?? `call_${index}`, call.name ?? "unknown", results[index] ?? {})
-  );
 }
 function isGeminiCapacityError(error) {
   const status = error.status;
@@ -1327,7 +1857,12 @@ function isGeminiCapacityError(error) {
 }
 function isGeminiTimeoutError(error) {
   const name = error instanceof Error ? error.name : "";
-  return name === "TimeoutError" || name === "AbortError";
+  const text = error instanceof Error ? error.message : String(error);
+  if (name === "TimeoutError" || name === "AbortError") return true;
+  return /operation was aborted|aborted due to timeout/i.test(text);
+}
+function shouldTryFallback(error) {
+  return isGeminiCapacityError(error) || isGeminiTimeoutError(error);
 }
 async function callModel(ai, request, model) {
   const timeoutMs = Math.max(1e3, request.timeoutMs ?? ASSISTANT_DEADLINE_MS);
@@ -1336,7 +1871,7 @@ async function callModel(ai, request, model) {
     contents: request.contents,
     config: {
       systemInstruction: request.systemInstruction,
-      tools: [{ functionDeclarations: [...TOOL_DECLARATIONS] }],
+      ...request.includeTools === false ? {} : { tools: [{ functionDeclarations: [...TOOL_DECLARATIONS] }] },
       automaticFunctionCalling: { disable: true },
       abortSignal: AbortSignal.timeout(timeoutMs)
     }
@@ -1362,119 +1897,6 @@ function unavailable(error) {
   return serviceUnavailable("The assistant could not answer just now.");
 }
 
-// src/services/assistant/ask.ts
-var PII_REFUSAL = "I can't look up a specific person. Ask about totals, sources, pages, or a segment.";
-function systemInstruction() {
-  return [
-    "You are Growth\u2019s analyst for this newsletter, website, and app.",
-    `Treat ${REFERENCE_DATE} as today.`,
-    `Cold means no open since ${daysBeforeReference(COLD_WINDOW_DAYS)} \u2014 last newsletter open, not signup date.`,
-    "Acquisition sources: Direct, Facebook, Google, Instagram, Podcast, Referral, X.",
-    "Use tools for every number. Interpret, compare, and recommend. Do not invent counts.",
-    "You only see aggregates. Never emails, names, or raw people.",
-    "If they name a person, refuse. Pronouns keep the last source or filter in this conversation.",
-    "Save a list only when they ask to save or build one. The app will show the people.",
-    "You may use markdown."
-  ].join(" ");
-}
-function plainAnswer(text) {
-  return text.replace(/\n{3,}/g, "\n\n").trim().slice(0, ASSISTANT_ANSWER_MAX_LENGTH);
-}
-function modelUserText(question) {
-  const text = question.trim();
-  if (text.length === 0) return { ok: false, reason: "empty" };
-  if (containsPii(text)) return { ok: false, reason: "pii" };
-  return { ok: true, text: text.slice(0, ASSISTANT_QUESTION_MAX_LENGTH) };
-}
-async function ask(question, options) {
-  const gated = modelUserText(question);
-  if (!gated.ok) {
-    log.info("assistant question blocked", { reason: gated.reason });
-    return {
-      answer: gated.reason === "pii" ? PII_REFUSAL : "Ask a question about totals, pages, or segments.",
-      blocked: gated.reason === "pii",
-      tables: []
-    };
-  }
-  try {
-    return await runAsk(gated.text, options);
-  } catch (error) {
-    if (error instanceof PiiBlockedError) {
-      log.info("assistant payload blocked", { kinds: error.kinds });
-      return { answer: PII_REFUSAL, blocked: true, tables: [] };
-    }
-    throw error;
-  }
-}
-async function runAsk(text, options) {
-  assertNoPii(text);
-  const contents = [
-    ...historyContents(options.history ?? []),
-    { role: "user", parts: [{ text }] }
-  ];
-  const tables = [];
-  let segment;
-  const deadline = Date.now() + ASSISTANT_DEADLINE_MS;
-  for (let round = 0; round < ASSISTANT_TOOL_ROUNDS; round += 1) {
-    const remaining = deadline - Date.now();
-    if (remaining < 1500) break;
-    assertNoPii(contents);
-    const turn = await options.gemini.generate({
-      model: options.model,
-      systemInstruction: systemInstruction(),
-      contents,
-      timeoutMs: remaining
-    });
-    if (turn.functionCalls && turn.functionCalls.length > 0) {
-      if (turn.modelContent) contents.push(turn.modelContent);
-      const payloads = [];
-      for (const call of turn.functionCalls) {
-        const result = await runTool(call.name ?? "", call.args, options.createdBy);
-        if (result.ok) {
-          if (result.table) rememberTable(tables, result.table);
-          if (result.segment) segment = result.segment;
-          payloads.push(result.data);
-        } else {
-          payloads.push({ error: result.error });
-        }
-      }
-      assertNoPii(payloads);
-      contents.push({ role: "user", parts: functionResponseParts(turn.functionCalls, payloads) });
-      continue;
-    }
-    const answer = plainAnswer(turn.text || "") || "I could not put that into words. Try asking another way.";
-    if (containsPii(answer, { names: false })) {
-      log.info("assistant answer blocked", { reason: "pii" });
-      return { answer: PII_REFUSAL, blocked: true, tables: [] };
-    }
-    return { answer, blocked: false, tables, segment };
-  }
-  return {
-    answer: tables.length || segment ? "Here is what I found." : "I could not finish that. Try a narrower question.",
-    blocked: false,
-    tables,
-    segment
-  };
-}
-function historyContents(history) {
-  const contents = [];
-  for (const turn of history.slice(-ASSISTANT_HISTORY_TURNS)) {
-    const gated = modelUserText(turn.question);
-    if (!gated.ok) continue;
-    const answer = plainAnswer(turn.answer);
-    if (!answer || containsPii(answer)) continue;
-    contents.push({ role: "user", parts: [{ text: gated.text }] });
-    contents.push({ role: "model", parts: [{ text: answer }] });
-  }
-  assertNoPii(contents);
-  return contents;
-}
-function rememberTable(tables, table) {
-  const existing = tables.findIndex((item) => item.title === table.title);
-  if (existing >= 0) tables.splice(existing, 1);
-  tables.push(table);
-}
-
 // src/routes/assistant.ts
 var bodySchema = z4.object({
   question: z4.string().trim().min(1, "Ask a question.").max(ASSISTANT_QUESTION_MAX_LENGTH),
@@ -1492,11 +1914,11 @@ function assistantRouter(limiters) {
   });
   router.post("/", limiters.assistant, async (req, res) => {
     const { question, history } = bodySchema.parse(req.body);
-    const gated = modelUserText(question);
-    if (!gated.ok) {
+    const planned = planQuestion(question, history);
+    if (!planned.ok) {
       res.json({
-        answer: gated.reason === "pii" ? PII_REFUSAL : "Ask a question about totals, pages, or segments.",
-        blocked: gated.reason === "pii",
+        answer: planned.reason === "pii" ? PII_REFUSAL : planned.reason === "empty" ? "Ask a question about totals, pages, or segments." : UNSUPPORTED_ANSWER,
+        blocked: planned.reason === "pii",
         tables: []
       });
       return;
@@ -1868,18 +2290,67 @@ function webhooksRouter() {
   return router;
 }
 
+// src/routes/appEvents.ts
+import { Router as Router8 } from "express";
+import { z as z9 } from "zod";
+
+// src/services/appEvents.ts
+async function listRecentAppEvents(limit = 5, offset = 0) {
+  const [rows, countRows] = await Promise.all([
+    query(
+      `
+    select
+      e.event_id,
+      e.event,
+      e.device_id,
+      e.received_at,
+      s.email_original as subscriber
+    from app_events e
+    left join app_users a on a.user_id = e.resolved_user_id
+    left join subscribers s on s.id = a.subscriber_id
+    order by e.received_at desc, e.event_id desc
+    limit $1 offset $2
+    `,
+      [limit, offset]
+    ),
+    query("select count(*)::text as total from app_events")
+  ]);
+  return {
+    events: rows.map((row) => ({
+      eventId: row.event_id,
+      event: row.event,
+      deviceId: row.device_id,
+      receivedAt: row.received_at.toISOString(),
+      subscriber: row.subscriber ?? "Anonymous"
+    })),
+    total: Number(countRows[0]?.total ?? 0)
+  };
+}
+
+// src/routes/appEvents.ts
+var querySchema2 = z9.object({
+  limit: z9.coerce.number().int().min(1).max(100).default(5),
+  offset: z9.coerce.number().int().min(0).default(0)
+});
+function appEventsRouter() {
+  const router = Router8();
+  router.get("/", async (req, res) => {
+    const { limit, offset } = querySchema2.parse(req.query);
+    res.json(await listRecentAppEvents(limit, offset));
+  });
+  return router;
+}
+
 // src/app.ts
 function createApp() {
   const env = getServerEnv();
   const app = express();
+  morganLogger.token("safe-url", (req) => req.path);
+  app.use(morganLogger(env.NODE_ENV === "production" ? ":remote-addr :method :safe-url :status :res[content-length] - :response-time ms" : ":method :safe-url :status :response-time ms"));
   app.disable("x-powered-by");
-  if (env.TRUST_PROXY || process.env.VERCEL === "1") app.set("trust proxy", 1);
-  app.use(
-    helmet({
-      contentSecurityPolicy: false,
-      crossOriginResourcePolicy: { policy: "cross-origin" }
-    })
-  );
+  if (env.TRUST_PROXY || process.env.VERCEL === "1") {
+    app.set("trust proxy", 1);
+  }
   const allowed = corsOrigins(env);
   app.use(
     cors({
@@ -1895,6 +2366,7 @@ function createApp() {
   const limiters = createLimiters();
   app.use("/api/health", limiters.api, healthRouter());
   app.use("/api/auth", limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
+  app.use("/api/app-events", limiters.api, requireAuth, appEventsRouter());
   app.use("/api/overview", limiters.api, requireAuth, overviewRouter());
   app.use("/api/subscribers", limiters.api, requireAuth, subscribersRouter());
   app.use("/api/segments", limiters.api, requireAuth, express.json({ limit: JSON_BODY_LIMIT }), segmentsRouter());
