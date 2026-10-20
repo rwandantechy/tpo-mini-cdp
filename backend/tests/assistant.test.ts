@@ -13,7 +13,7 @@ import {
   type GeminiClient,
   type GeminiRequest,
   type GeminiTurn,
-} from '../src/services/assistant/gemini.js';
+} from '../src/services/assistant/llm.js';
 import { TEST_PASSWORD } from './helpers/credentials.js';
 import { buildTestApp, cookieValue } from './helpers/testApp.js';
 

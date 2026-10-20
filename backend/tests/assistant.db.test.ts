@@ -8,7 +8,7 @@ import { serviceUnavailable } from '../src/lib/errors.js';
 import { assertNoPii, containsPii } from '../src/lib/pii.js';
 import { ask, PII_REFUSAL } from '../src/services/assistant/ask.js';
 import { firstPagesForNewSubscribers, snapshotCounts, subscriberBreakdown, topPages } from '../src/services/assistant/analytics.js';
-import type { GeminiClient, GeminiRequest, GeminiTurn } from '../src/services/assistant/gemini.js';
+import type { GeminiClient, GeminiRequest, GeminiTurn } from '../src/services/assistant/llm.js';
 import { planQuestion } from '../src/services/assistant/plan.js';
 import { runTool } from '../src/services/assistant/tools.js';
 import { countSegment, previewSegment } from '../src/services/segments.js';

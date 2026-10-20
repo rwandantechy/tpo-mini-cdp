@@ -9,7 +9,7 @@ import {
   type SubscriberStatus,
 } from '../config/constants.js';
 import { daysBeforeReference, isIsoDate } from '../lib/dates.js';
-import { query, queryOne } from '../lib/db.js';
+import { query, queryOne, withTransaction } from '../lib/db.js';
 import { subscriberHitFromRow, type SubscriberPage, type SubscriberRow } from './subscribers.js';
 
 export type LastOpenFilter = 'any' | 'never' | 'cold';
@@ -154,26 +154,24 @@ export async function listSegments(): Promise<SavedSegment[]> {
 
 export async function saveSegment(name: string, definition: SegmentDefinition, createdBy: string): Promise<SavedSegment> {
   const payload = JSON.stringify(definition);
-  const existing = await queryOne<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
-    `
-    update segments
-    set name = $1, definition = $2::jsonb
-    where lower(name) = lower($1)
-    returning id, name, definition, created_at
-    `,
-    [name, payload],
-  );
+  const row = await withTransaction(async (client) => {
+    await client.query('select pg_advisory_xact_lock(hashtext(lower($1)))', [name]);
+    const existing = await client.query<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
+      `update segments set name = $1, definition = $2::jsonb
+       where lower(name) = lower($1)
+       returning id, name, definition, created_at`,
+      [name, payload],
+    );
+    if (existing.rows[0]) return existing.rows[0];
 
-  const row =
-    existing ??
-    (await queryOne<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
-      `
-      insert into segments (name, definition, created_by)
-      values ($1, $2::jsonb, $3)
-      returning id, name, definition, created_at
-      `,
+    const inserted = await client.query<{ id: string; name: string; definition: SegmentDefinition; created_at: Date }>(
+      `insert into segments (name, definition, created_by)
+       values ($1, $2::jsonb, $3)
+       returning id, name, definition, created_at`,
       [name, payload, createdBy],
-    ));
+    );
+    return inserted.rows[0];
+  });
 
   if (!row) throw new Error('Segment save returned no row.');
 

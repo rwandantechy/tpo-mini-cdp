@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Badge, Button, Notice, Spinner } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
@@ -8,20 +8,30 @@ import type { PersonRecord } from './types.ts';
 export function SubscriberRecord({ id, onClose }: { id: string; onClose: () => void }) {
   const [profile, setProfile] = useState<PersonRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
 
   const load = useCallback(async () => {
+    const version = ++requestVersion.current;
     setError(null);
     try {
-      setProfile(await api.get<PersonRecord>(`/api/subscribers/${id}`));
+      const nextProfile = await api.get<PersonRecord>(`/api/subscribers/${id}`);
+      if (requestVersion.current === version) setProfile(nextProfile);
     } catch (caught) {
-      setProfile(null);
-      setError(caught instanceof ApiError ? caught.message : 'Could not load that person.');
+      if (requestVersion.current === version) {
+        setProfile(null);
+        setError(caught instanceof ApiError ? caught.message : 'Could not load that person.');
+      }
     }
   }, [id]);
 
   useEffect(() => {
     setProfile(null);
     void load();
+  }, [id, load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => window.clearInterval(timer);
   }, [id, load]);
 
   if (error) {

@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
+
 import morganLogger from 'morgan';
 import { JSON_BODY_LIMIT, WEBHOOK_MOUNT } from './config/constants.js';
 import { corsOrigins, getServerEnv } from './config/env.js';
@@ -23,7 +24,7 @@ import { overviewRouter } from './routes/overview.js';
 import { segmentsRouter } from './routes/segments.js';
 import { subscribersRouter } from './routes/subscribers.js';
 import { webhooksRouter } from './routes/webhooks.js';
-
+import { appEventsRouter } from './routes/appEvents.js';
 export function createApp(): Express {
   const env = getServerEnv();
   const app = express();
@@ -55,7 +56,7 @@ if (env.TRUST_PROXY || process.env.VERCEL === "1") {
 // Use the health router.
   app.use('/api/health', limiters.api, healthRouter());
   app.use('/api/auth', limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
-
+app.use('/api/app-events', limiters.api, requireAuth, appEventsRouter());
   app.use('/api/overview', limiters.api, requireAuth, overviewRouter());
   app.use('/api/subscribers', limiters.api, requireAuth, subscribersRouter());
   app.use('/api/segments', limiters.api, requireAuth, express.json({ limit: JSON_BODY_LIMIT }), segmentsRouter());

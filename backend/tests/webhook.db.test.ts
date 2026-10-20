@@ -5,6 +5,8 @@ import type { PoolClient } from 'pg';
 
 import { closePool, withTransaction } from '../src/lib/db.js';
 import { ingestAppEvent, type IncomingAppEvent, type IngestResult } from '../src/services/webhooks.js';
+import { previewSegment } from '../src/services/segments.js';
+import { getSubscriberProfile } from '../src/services/subscribers.js';
 import { hasDatabase, RollbackSignal } from './helpers/database.js';
 
 const describeDb = hasDatabase ? describe : describe.skip;
@@ -61,6 +63,44 @@ async function resolved(client: PoolClient, deviceId: string): Promise<Array<{ e
 }
 
 describeDb('ingestAppEvent', () => {
+  it('makes a linked webhook event visible in subscriber lookup and the live app segment', async () => {
+    const deviceId = DEVICE();
+    const userId = USER('lookup');
+    const email = `${randomUUID()}@example.test`;
+    let subscriberId = '';
+
+    try {
+      await withTransaction(async (client) => {
+        const subscriber = await client.query<{ id: string }>(
+          `insert into subscribers (email_normalized, email_original, status)
+           values ($1, $1, 'active') returning id`,
+          [email],
+        );
+        subscriberId = subscriber.rows[0]!.id;
+        await client.query(
+          `insert into app_users (user_id, subscriber_id, origin) values ($1, $2, 'webhook')`,
+          [userId, subscriberId],
+        );
+        await ingestAppEvent(
+          client,
+          event({ event: 'app_open', userId, deviceId, occurredAt: at(14, 22) }),
+        );
+      });
+
+      const profile = await getSubscriberProfile(subscriberId);
+      expect(profile?.app.events.map((item) => item.event)).toContain('app_open');
+
+      const appSegment = await previewSegment({ hasApp: true }, { limit: 10_000 });
+      expect(appSegment.results.some((person) => person.id === subscriberId)).toBe(true);
+    } finally {
+      await withTransaction(async (client) => {
+        await client.query('delete from app_devices where device_id = $1', [deviceId]);
+        await client.query('delete from app_users where user_id = $1', [userId]);
+        if (subscriberId) await client.query('delete from subscribers where id = $1', [subscriberId]);
+      });
+    }
+  });
+
   it('keeps an unknown user_id as its own profile and still stores the event', async () => {
     const deviceId = DEVICE();
     const userId = USER('unknown');

@@ -25,9 +25,9 @@ Cold is last open before 29 August 2026, for every signup date. Adding a signup 
 ## Limits
 
 - A single given name, with no surname, is not treated as a person.
-- Two simultaneous first saves of one segment name can insert two rows.
+- Segment names are unique without regard to case; saving an existing name updates it.
 - The API user owns the tables and bypasses row-level security. The session cookie closes the routes.
-- Rate limits are per server instance.
+- Rate limits are per server instance and do not provide a deployment-wide quota.
 
 ## Local
 
@@ -40,7 +40,9 @@ npm run import
 npm run dev          # API  http://127.0.0.1:4000
 npm run dev:web      # UI   http://localhost:5173
 npm test
-npm run send-event   # signed read_story; set WEBHOOK_URL for a deployed API
+npm run send-event -- --event app_open --device d_test_001
+npm run send-event -- --event login --device d_test_001 --user u_0d6f8a22
+npm run send-event -- --event read_story --device d_test_001
 ```
 
 ## Vercel

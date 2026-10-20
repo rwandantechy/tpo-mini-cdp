@@ -19,7 +19,7 @@ import {
 } from "../../components/ui.tsx";
 import { api, ApiError } from "../../lib/api.ts";
 import { formatDate } from "../../lib/format.ts";
-
+import { LiveAppEvents } from './LiveAppEvents.tsx';
 interface ImportRun {
   source: string;
   status: string;
@@ -123,6 +123,8 @@ export function Dashboard() {
         title="Overview"
         description={`As of ${formatDate(overview.referenceDate)}. Quiet means no open in ${overview.coldWindowDays} days.`}
       />
+
+      <LiveAppEvents />
 
       <Card>
         <dl className="grid grid-cols-2 divide-y divide-line sm:grid-cols-4 sm:divide-x sm:divide-y-0">

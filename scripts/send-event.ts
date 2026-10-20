@@ -1,55 +1,25 @@
 /** Sign and POST one app event. `npm run send-event` or pass a JSON body. */
 
-import { randomUUID } from 'node:crypto';
-
-import { SAMPLE_APP_EVENT, WEBHOOK_APP_PATH } from '../backend/src/config/constants.js';
+import { WEBHOOK_APP_PATH } from '../backend/src/config/constants.js';
 import { loadDotenv } from '../backend/src/config/dotenv.js';
 import { getServerEnv } from '../backend/src/config/env.js';
-import { closePool, queryOne } from '../backend/src/lib/db.js';
+import { closePool } from '../backend/src/lib/db.js';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, signPayload } from '../backend/src/lib/hmac.js';
+import { createEventBody, parseEventArgs } from './send-event-utils.js';
 
 loadDotenv();
 
-interface LinkedUser {
-  user_id: string;
-}
-
-async function sampleBody(): Promise<{ body: Record<string, unknown>; note?: string }> {
-  const linked = await queryOne<LinkedUser>(
-    `
-    select user_id
-    from app_users
-    where subscriber_id is not null
-    order by user_id
-    limit 1
-    `,
-  );
-
-  const userId = linked?.user_id ?? SAMPLE_APP_EVENT.user_id;
-  const note = linked
-    ? `${SAMPLE_APP_EVENT.event} for linked app user ${userId}`
-    : 'unknown user (no linked app account in the database yet)';
-
-  return {
-    note,
-    body: {
-      ...SAMPLE_APP_EVENT,
-      event_id: `evt_${randomUUID()}`,
-      user_id: userId,
-    },
-  };
-}
-
 async function main(): Promise<void> {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    process.stdout.write('Usage: npm run send-event -- --event <name> --device <id> [--user <id>] [--event-id <id>]\n');
+    return;
+  }
   const env = getServerEnv();
   const url = env.WEBHOOK_URL ?? `http://127.0.0.1:${env.PORT}${WEBHOOK_APP_PATH}`;
-  const prepared = process.argv[2]
-    ? { body: JSON.parse(process.argv[2]) as unknown, note: undefined }
-    : await sampleBody();
-  const raw = JSON.stringify(prepared.body);
+  const options = parseEventArgs(process.argv.slice(2));
+  const body = createEventBody(options);
+  const raw = JSON.stringify(body);
   const timestamp = String(Math.floor(Date.now() / 1000));
-
-  if (prepared.note) process.stderr.write(`${prepared.note}\n`);
 
   const response = await fetch(url, {
     method: 'POST',
