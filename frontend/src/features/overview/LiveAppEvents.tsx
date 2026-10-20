@@ -48,6 +48,9 @@ export function LiveAppEvents() {
     };
   }, []);
 
+  const visibleEvents = events.slice(0, 5);
+  const olderEvents = events.slice(5);
+
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
@@ -73,19 +76,38 @@ export function LiveAppEvents() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {events.map((event) => (
-              <tr key={event.eventId}>
-                <td className="px-5 py-3">{event.event}</td>
-                <td className="px-5 py-3">{event.deviceId}</td>
-                <td className="px-5 py-3">{event.subscriber}</td>
-              </tr>
-            ))}
+            {visibleEvents.map((event) => <EventRow key={event.eventId} event={event} />)}
             {events.length === 0 ? (
               <tr><td colSpan={3} className="px-5 py-4 text-ink-soft">No app events received yet.</td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
+
+      {olderEvents.length > 0 ? (
+        <details className="border-t border-line">
+          <summary className="cursor-pointer px-5 py-3 text-sm text-ink-soft hover:text-ink">
+            Show {olderEvents.length} older {olderEvents.length === 1 ? 'event' : 'events'}
+          </summary>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-line">
+                {olderEvents.map((event) => <EventRow key={event.eventId} event={event} />)}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
     </Card>
+  );
+}
+
+function EventRow({ event }: { event: LiveAppEvent }) {
+  return (
+    <tr>
+      <td className="px-5 py-3">{event.event}</td>
+      <td className="px-5 py-3">{event.deviceId}</td>
+      <td className="px-5 py-3">{event.subscriber}</td>
+    </tr>
   );
 }

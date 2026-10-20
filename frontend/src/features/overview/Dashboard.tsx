@@ -12,6 +12,7 @@ import {
 import {
   Card,
   CardHeader,
+  Button,
   Notice,
   PageHeader,
   Spinner,
@@ -73,6 +74,8 @@ interface Overview {
   lastImports: ImportRun[];
 }
 
+let cachedOverview: Overview | null = null;
+
 function tally(counts: Record<string, number>): string {
   return Object.entries(counts)
     .sort(([, a], [, b]) => b - a)
@@ -84,26 +87,50 @@ function tally(counts: Record<string, number>): string {
 }
 
 export function Dashboard() {
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(() => cachedOverview);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    api
-      .get<Overview>("/api/overview")
-      .then(setOverview)
-      .catch((caught: unknown) =>
+    let active = true;
+    let attempt = 0;
+    let retryTimer: number | undefined;
+
+    const load = async () => {
+      try {
+        const result = await api.get<Overview>("/api/overview");
+        if (!active) return;
+        cachedOverview = result;
+        setOverview(result);
+        setError(null);
+      } catch (caught) {
+        if (!active) return;
+        attempt += 1;
         setError(
           caught instanceof ApiError
             ? caught.message
             : "Could not load the overview.",
-        ),
-      );
-  }, []);
+        );
+        if (attempt < 3) {
+          retryTimer = window.setTimeout(() => void load(), attempt * 1_000);
+        }
+      }
+    };
 
-  if (error) {
+    void load();
+    return () => {
+      active = false;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
+  }, [retryKey]);
+
+  if (!overview && error) {
     return (
       <div className="p-4 sm:p-6">
         <Notice tone="error">{error}</Notice>
+        <Button className="mt-3" onClick={() => { setError(null); setRetryKey((key) => key + 1); }}>
+          Try again
+        </Button>
       </div>
     );
   }
@@ -119,6 +146,7 @@ export function Dashboard() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+      {error ? <Notice tone="error">Could not refresh the overview. Showing the last loaded data.</Notice> : null}
       <PageHeader
         title="Overview"
         description={`As of ${formatDate(overview.referenceDate)}. Quiet means no open in ${overview.coldWindowDays} days.`}
