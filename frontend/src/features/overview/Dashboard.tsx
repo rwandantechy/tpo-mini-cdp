@@ -19,7 +19,6 @@ import {
   Stat,
 } from "../../components/ui.tsx";
 import { api, ApiError } from "../../lib/api.ts";
-import { formatDate } from "../../lib/format.ts";
 import { LiveAppEvents } from './LiveAppEvents.tsx';
 interface ImportRun {
   source: string;
@@ -142,7 +141,7 @@ export function Dashboard({ onViewLiveEvents }: { onViewLiveEvents: () => void }
       {error ? <Notice tone="error">Could not refresh the overview. Showing the last loaded data.</Notice> : null}
       <PageHeader
         title="Overview"
-        description={`As of ${formatDate(overview.referenceDate)}. Quiet means no open in ${overview.coldWindowDays} days.`}
+        description={`Quiet means no open in ${overview.coldWindowDays} days.`}
       />
 
       <Card>
