@@ -1,71 +1,48 @@
 # Mini CDP
 
-One person across newsletter, site, and app. **Today is 28 September 2026.** Cold means no open since 29 August 2026. Not an official The Pour Over product.
+A small dashboard that brings newsletter subscribers, website visits, and mobile app events together. This is an assessment project, not an official Pour Over product.
 
-The UI talks only to Express. Express is the only path to Postgres and Gemini.
+The app uses a fixed reference date of **September 28, 2026**. “Quiet” means no email open in the previous 30 days.
 
-## Data
+## Run locally
 
-`npm run import` loads `data/subscribers.csv`, `data/web_events.csv`, and `data/app_users.csv`. Skipped rows are recorded with a reason. Schema is `supabase/migrations/`. The database is not in git.
-
-Emails are trimmed and lowercased. Gmail dots and `+tags` are kept. Subscribers merge on that email: earliest signup, latest open, unsubscribed wins, source from the earliest signup. App accounts link on the same email. A visitor attaches to the earliest captured email; the address is not stored on the pageview.
-
-## Webhook
-
-`POST /webhooks/app` takes `app_open`, `read_story`, `link_click`, and `login`. Sign `timestamp.rawBody` with HMAC-SHA256 (`x-tpo-signature: sha256=…`, `x-tpo-timestamp` within five minutes). Same `event_id` returns 200. A new one returns 201.
-
-An unknown `user_id` is stored with no subscriber link. Anonymous device events attach at the first login. A later login claims only from its own time forward. A named event is not moved.
-
-## Ask
-
-Gemini receives a tool name, filters, and counts. It does not receive the question, earlier turns, emails, names, or subscriber rows. A question the app cannot map to those aggregates is answered in the app and is not sent. A model reply that contains an email or a two-word name is replaced before it reaches the UI.
-
-Cold is last open before 29 August 2026, for every signup date. Adding a signup window is a separate filter. "Which pages do new subscribers hit first?" uses the first page view on or after the signup date.
-
-## Limits
-
-- A single given name, with no surname, is not treated as a person.
-- Segment names are unique without regard to case; saving an existing name updates it.
-- The API user owns the tables and bypasses row-level security. The session cookie closes the routes.
-- Rate limits are per server instance and do not provide a deployment-wide quota.
-
-## Local
-
-Node 20. Copy `.env.example` to `.env`. Secrets: `openssl rand -hex 32`, then `npm run hash-password`.
+You’ll need Node 20 and a PostgreSQL database. Supabase is used for the hosted setup.
 
 ```bash
+cp .env.example .env
 npm install
+npm run hash-password
 npm run migrate
 npm run import
-npm run dev          # API  http://127.0.0.1:4000
-npm run dev:web      # UI   http://localhost:5173
-npm test
+npm run dev          # API at http://127.0.0.1:4000
+npm run dev:web      # UI at http://localhost:5173
+```
+
+Add your database URL and generated secrets to `.env`; see [.env.example](.env.example) for the full list. Run the password command in a separate terminal and copy its output into `.env`.
+
+The CSV files in `data/` contain subscriber, website, and app-account data. To send sample mobile events:
+
+```bash
 npm run send-event -- --event app_open --device d_test_001
 npm run send-event -- --event login --device d_test_001 --user u_0d6f8a22
 npm run send-event -- --event read_story --device d_test_001
 ```
 
-## Vercel
+## How identities work
 
-One project, two services, one domain. `/api` and `/webhooks` go to Express. Everything else goes to the Vite app. Leave `VITE_API_BASE_URL` empty. Leave Build Command, Start Command, and Output Directory empty.
+Email addresses are trimmed and lowercased; Gmail dots and `+tags` are kept. Subscribers with the same normalized email merge: the earliest signup, latest open, unsubscribed status, and original signup source are kept. App accounts link by email. On a device’s first login, earlier anonymous events are linked too. Later logins claim events only from their own time forward. Website visits attach to the earliest email captured for that visitor; the email is not stored on each pageview.
 
-Deploy does not migrate or import. The build bundles the API to `app.mjs`.
+The `POST /webhooks/app` endpoint accepts `app_open`, `read_story`, `link_click`, and `login`. Sign `timestamp.rawBody` with HMAC-SHA256 and send it in `x-tpo-signature`; send the timestamp in `x-tpo-timestamp`. Timestamps must be within five minutes. A new event returns `201`; a repeated `event_id` returns `200`.
 
-```
-NODE_ENV=production
-DATABASE_URL=
-DATABASE_SSL=require
-DATABASE_CA_CERT=certs/supabase-ca.crt
-SESSION_SECRET=
-APP_PASSWORD_HASH=
-WEBHOOK_SECRET=
-CORS_ORIGINS=http://localhost:5173
-COOKIE_SAMESITE=lax
-COOKIE_SECURE=true
-TRUST_PROXY=true
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.5-flash-lite
-GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
-```
+## Assistant and deployment
 
-Use the Supabase session pooler, port 5432. `GET /api/health`.
+The assistant sends Gemini aggregate tool names, filters, and counts. It does not send the question, conversation history, emails, names, or subscriber rows. Unsupported questions are answered without calling Gemini. Replies containing an email or a two-word name are filtered before display.
+
+Vercel serves the UI and API on one domain; `/api` and `/webhooks` are routed to Express. Keep `VITE_API_BASE_URL` empty. Deploys do not run database migrations or import CSV data, so do those separately. The health check is `GET /api/health`.
+
+## Known limits
+
+- Cold and quiet calculations use the fixed assessment date above.
+- A given name without a surname is not treated as a person in assistant answers.
+- The API database user bypasses row-level security; app routes rely on the session cookie for access control.
+- Rate limits are local to each server instance.
