@@ -26,7 +26,7 @@ export function App() {
   if (status === 'checking') {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-surface-muted">
-        <Spinner label="Checking your session…" />
+        <Spinner label="Connecting to the server…" />
       </main>
     );
   }
@@ -58,7 +58,6 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
       <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-surface md:flex">
         <div className="border-b border-line px-4 py-4">
           <p className="text-sm font-semibold text-ink">Mini CDP</p>
-          <p className="mt-0.5 text-xs text-ink-soft">Growth · Sep 28, 2026</p>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 p-3">

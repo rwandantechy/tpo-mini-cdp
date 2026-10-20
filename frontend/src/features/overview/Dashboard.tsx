@@ -93,8 +93,6 @@ export function Dashboard({ onViewLiveEvents }: { onViewLiveEvents: () => void }
 
   useEffect(() => {
     let active = true;
-    let attempt = 0;
-    let retryTimer: number | undefined;
 
     const load = async () => {
       try {
@@ -105,22 +103,17 @@ export function Dashboard({ onViewLiveEvents }: { onViewLiveEvents: () => void }
         setError(null);
       } catch (caught) {
         if (!active) return;
-        attempt += 1;
         setError(
           caught instanceof ApiError
             ? caught.message
             : "Could not load the overview.",
         );
-        if (attempt < 3) {
-          retryTimer = window.setTimeout(() => void load(), attempt * 1_000);
-        }
       }
     };
 
     void load();
     return () => {
       active = false;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [retryKey]);
 

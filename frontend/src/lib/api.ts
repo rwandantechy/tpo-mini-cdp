@@ -24,6 +24,28 @@ interface ErrorBody {
   error?: { code?: string; message?: string; details?: unknown };
 }
 
+const GET_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 5_000];
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientGetError(error: unknown): error is ApiError {
+  return error instanceof ApiError && (error.status === 0 || error.status >= 500);
+}
+
+async function getWithRetry<T>(path: string): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await request<T>(path);
+    } catch (error) {
+      const delay = GET_RETRY_DELAYS_MS[attempt];
+      if (!isTransientGetError(error) || delay === undefined) throw error;
+      await wait(delay);
+    }
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
 
@@ -59,7 +81,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string) => getWithRetry<T>(path),
   post: <T>(path: string, body?: unknown, options?: { timeoutMs?: number }) =>
     request<T>(path, {
       method: 'POST',
