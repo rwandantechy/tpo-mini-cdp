@@ -92,7 +92,7 @@ function SignedIn({ user, onSignOut }: { user: string | null; onSignOut: () => P
         <main className="min-h-0 flex-1 overflow-hidden">
           {screen === 'overview' ? (
             <div className="h-full overflow-auto">
-              <Dashboard />
+              <Dashboard onViewLiveEvents={() => setScreen('app-events')} />
             </div>
           ) : null}
           {screen === 'app-events' ? (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { ActivityIcon } from '../../components/icons.tsx';
-import { Button, Card, Notice } from '../../components/ui.tsx';
+import { Button, Card, Notice, PageHeader } from '../../components/ui.tsx';
 import { api, ApiError } from '../../lib/api.ts';
 
 interface LiveAppEvent {
@@ -24,6 +24,9 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
         if (active) {
           setEvents(page.events);
           setTotal(page.total);
+          setLastUpdated(new Date());
           setError(null);
         }
       } catch (caught) {
@@ -47,7 +51,10 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
         }
       } finally {
         pending = false;
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     };
 
@@ -58,25 +65,57 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
       active = false;
       window.clearInterval(timer);
     };
-  }, [compact, offset]);
+  }, [compact, offset, refreshKey]);
 
   const firstVisible = total === 0 ? 0 : offset + 1;
   const lastVisible = Math.min(offset + events.length, total);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
+    <>
+    {!compact ? (
+      <PageHeader title="Live Events" description="Recent mobile app activity, refreshed automatically every five seconds." />
+    ) : null}
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
         <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
           <span className="text-coral-deep"><ActivityIcon /></span>
           Live App Events
         </h2>
-        <span className="flex items-center gap-2 text-sm text-emerald-600">
-          <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
-          Auto-refresh · 5s
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {!compact && lastUpdated ? (
+            <span className="text-xs text-ink-soft">
+              Updated {lastUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+            </span>
+          ) : null}
+          {!compact ? (
+            <Button
+              variant="quiet"
+              className="px-3 py-1.5"
+              disabled={refreshing}
+              onClick={() => { setRefreshing(true); setRefreshKey((key) => key + 1); }}
+            >
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </Button>
+          ) : null}
+          <span className="flex items-center gap-2 text-sm text-emerald-600">
+            <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
+            Auto-refresh · 5s
+          </span>
+        </div>
       </div>
 
-      {error ? <div className="p-4"><Notice tone="error">{error}</Notice></div> : null}
+      {error ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <Notice tone="error">{error}</Notice>
+          {!compact ? (
+            <Button variant="quiet" disabled={refreshing} onClick={() => { setRefreshing(true); setRefreshKey((key) => key + 1); }}>
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -90,7 +129,7 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
           <tbody className="divide-y divide-line">
             {events.map((event) => <EventRow key={event.eventId} event={event} />)}
             {events.length === 0 ? (
-              <tr><td colSpan={3} className="px-5 py-4 text-ink-soft">{loading ? 'Loading app events…' : 'No app events received yet.'}</td></tr>
+              <tr><td colSpan={3} className="px-5 py-8 text-center text-ink-soft">{loading ? 'Loading app events…' : 'No app events received yet.'}</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -103,19 +142,20 @@ export function LiveAppEvents({ compact = false, onViewAll }: { compact?: boolea
       ) : null}
 
       {!compact && total > 0 ? (
-        <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
-          <span className="text-sm text-ink-soft">Showing {firstVisible}–{lastVisible} of {total}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2">
+          <span className="text-sm text-ink-soft">Showing {firstVisible}–{lastVisible} of {total} · Page {currentPage} of {pageCount}</span>
           <div className="flex gap-2">
-            <Button variant="quiet" className="px-3 py-1.5" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+            <Button variant="quiet" className="px-3 py-1.5" disabled={offset === 0 || loading} onClick={() => { setLoading(true); setOffset(Math.max(0, offset - PAGE_SIZE)); }}>
               Previous
             </Button>
-            <Button variant="quiet" className="px-3 py-1.5" disabled={offset + PAGE_SIZE >= total || loading} onClick={() => setOffset(offset + PAGE_SIZE)}>
+            <Button variant="quiet" className="px-3 py-1.5" disabled={offset + PAGE_SIZE >= total || loading} onClick={() => { setLoading(true); setOffset(offset + PAGE_SIZE); }}>
               Next
             </Button>
           </div>
         </div>
       ) : null}
     </Card>
+    </>
   );
 }
 
