@@ -70,7 +70,6 @@ export const DEFAULT_GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 export const SECRET_MIN_LENGTH = 32;
 
 // Session settings. A session lasts 12 hours.
-export const SESSION_SUBJECT = 'growth';
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 // Accepted password length.
@@ -123,7 +122,9 @@ export const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 // Database connection settings.
 // Limit open connections and avoid waiting indefinitely for a connection.
-export const DB_POOL_MAX = 10;
+// Keep each serverless instance's connection footprint small. Supabase transaction pooling
+// multiplexes these clients across its smaller number of database connections.
+export const DB_POOL_MAX = 2;
 export const DB_IDLE_TIMEOUT_MS = 30_000;
 export const DB_CONNECT_TIMEOUT_MS = 10_000;
 

@@ -30,8 +30,8 @@ export function useSession() {
     void check();
   }, [check]);
 
-  const signIn = useCallback(async (password: string) => {
-    const session = await api.post<SessionResponse>('/api/auth/login', { password });
+  const signIn = useCallback(async (email: string, password: string) => {
+    const session = await api.post<SessionResponse>('/api/auth/login', { email, password });
     setUser(session.user ?? null);
     setStatus('signed-in');
   }, []);

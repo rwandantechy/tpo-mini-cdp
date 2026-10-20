@@ -2,9 +2,9 @@ import type { Express } from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { RATE_LIMITS, SESSION_SUBJECT } from '../src/config/constants.js';
+import { RATE_LIMITS } from '../src/config/constants.js';
 import { SESSION_COOKIE } from '../src/lib/session.js';
-import { randomCredential, TEST_PASSWORD } from './helpers/credentials.js';
+import { randomCredential, TEST_EMAIL, TEST_PASSWORD } from './helpers/credentials.js';
 import { buildTestApp, cookieValue, TEST_CORS_ORIGIN } from './helpers/testApp.js';
 
 describe('POST /api/auth/login', () => {
@@ -15,10 +15,10 @@ describe('POST /api/auth/login', () => {
   });
 
   it('sets an httpOnly session cookie for the right password', async () => {
-    const response = await request(app).post('/api/auth/login').send({ password: TEST_PASSWORD });
+    const response = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ authenticated: true, user: SESSION_SUBJECT });
+    expect(response.body).toEqual({ authenticated: true, user: TEST_EMAIL });
 
     const header = response.headers['set-cookie'] as unknown as string[];
     const cookie = header.find((entry) => entry.startsWith(`${SESSION_COOKIE}=`));
@@ -30,7 +30,7 @@ describe('POST /api/auth/login', () => {
   });
 
   it('rejects the wrong password without issuing a cookie', async () => {
-    const response = await request(app).post('/api/auth/login').send({ password: randomCredential('wrong') });
+    const response = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: randomCredential('wrong') });
 
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe('unauthorized');
@@ -39,37 +39,38 @@ describe('POST /api/auth/login', () => {
 
   it('never echoes the password back, in any form', async () => {
     const attempted = randomCredential('attempt');
-    const response = await request(app).post('/api/auth/login').send({ password: attempted });
+    const response = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: attempted });
 
     expect(JSON.stringify(response.body)).not.toContain(attempted);
     expect(JSON.stringify(response.headers)).not.toContain(attempted);
   });
 
   it('validates the body', async () => {
-    await expect(request(app).post('/api/auth/login').send({}).then((r) => r.status)).resolves.toBe(400);
-    await expect(request(app).post('/api/auth/login').send({ password: '' }).then((r) => r.status)).resolves.toBe(400);
+    await expect(request(app).post('/api/auth/login').send({ email: TEST_EMAIL }).then((r) => r.status)).resolves.toBe(400);
+    await expect(request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: '' }).then((r) => r.status)).resolves.toBe(400);
+    await expect(request(app).post('/api/auth/login').send({ email: 'bad', password: TEST_PASSWORD }).then((r) => r.status)).resolves.toBe(400);
     await expect(
-      request(app).post('/api/auth/login').send({ password: 123 }).then((r) => r.status),
+      request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: 123 }).then((r) => r.status),
     ).resolves.toBe(400);
   });
 
   it('stops guessing after the login rate limit', async () => {
     for (let attempt = 0; attempt < RATE_LIMITS.login.limit; attempt += 1) {
-      const response = await request(app).post('/api/auth/login').send({ password: randomCredential('guess') });
+      const response = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: randomCredential('guess') });
       expect(response.status).toBe(401);
     }
 
-    const blocked = await request(app).post('/api/auth/login').send({ password: randomCredential('guess') });
+    const blocked = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: randomCredential('guess') });
     expect(blocked.status).toBe(429);
     expect(blocked.body.error.code).toBe('too_many_requests');
 
-    const stillBlocked = await request(app).post('/api/auth/login').send({ password: TEST_PASSWORD });
+    const stillBlocked = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
     expect(stillBlocked.status).toBe(429);
   });
 
   it('marks the cookie Secure and SameSite=None when configured for cross-origin use', async () => {
     const crossOrigin = await buildTestApp({ COOKIE_SAMESITE: 'none', COOKIE_SECURE: 'true' });
-    const response = await request(crossOrigin).post('/api/auth/login').send({ password: TEST_PASSWORD });
+    const response = await request(crossOrigin).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
 
     const cookie = (response.headers['set-cookie'] as unknown as string[])[0];
     expect(cookie).toMatch(/SameSite=None/i);
@@ -92,15 +93,15 @@ describe('GET /api/auth/session', () => {
   });
 
   it('recognises a signed cookie', async () => {
-    const login = await request(app).post('/api/auth/login').send({ password: TEST_PASSWORD });
+    const login = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
     const token = cookieValue(login.headers['set-cookie'] as unknown as string[], SESSION_COOKIE);
 
     const response = await request(app).get('/api/auth/session').set('Cookie', `${SESSION_COOKIE}=${token}`);
-    expect(response.body).toEqual({ authenticated: true, user: SESSION_SUBJECT });
+    expect(response.body).toEqual({ authenticated: true, user: TEST_EMAIL });
   });
 
   it('ignores a tampered cookie', async () => {
-    const login = await request(app).post('/api/auth/login').send({ password: TEST_PASSWORD });
+    const login = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
     const token = cookieValue(login.headers['set-cookie'] as unknown as string[], SESSION_COOKIE) ?? '';
     const tampered = `${token.slice(0, -4)}0000`;
 
@@ -109,7 +110,7 @@ describe('GET /api/auth/session', () => {
   });
 
   it('ignores a cookie that was simply invented', async () => {
-    const payload = Buffer.from(JSON.stringify({ sub: SESSION_SUBJECT, exp: 9_999_999_999 }), 'utf8').toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: 'invented', exp: 9_999_999_999 }), 'utf8').toString('base64url');
     const response = await request(app)
       .get('/api/auth/session')
       .set('Cookie', `${SESSION_COOKIE}=${payload}.${'0'.repeat(8)}`);

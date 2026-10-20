@@ -40,9 +40,9 @@ interface Turn {
 }
 
 const SUGGESTIONS = [
-  'How many Instagram signups went cold in the last 30 days?',
-  'Build a list of our most engaged readers',
-  'Which pages do new subscribers hit first?',
+  'How many total subscribers do we have?',
+  'How many subscribers came from Instagram?',
+  'How many active subscribers use both our website and app?',
 ];
 
 export function Assistant() {

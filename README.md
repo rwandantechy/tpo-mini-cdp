@@ -6,19 +6,27 @@ The app uses a fixed reference date of **September 28, 2026**. “Quiet” means
 
 ## Run locally
 
-You’ll need Node 20 and a PostgreSQL database. Supabase is used for the hosted setup.
+You’ll need Node 20 and PostgreSQL. The hosted app uses Supabase. Copy `.env.example` to `.env`, then set `DATABASE_URL` and generate `SESSION_SECRET` and `WEBHOOK_SECRET` with `openssl rand -hex 32`.
 
 ```bash
 cp .env.example .env
 npm install
-npm run hash-password
 npm run migrate
+npm run create-user
 npm run import
-npm run dev          # API at http://127.0.0.1:4000
-npm run dev:web      # UI at http://localhost:5173
 ```
 
-Add your database URL and generated secrets to `.env`; see [.env.example](.env.example) for the full list. Run the password command in a separate terminal and copy its output into `.env`.
+`npm run migrate` creates the schema. `npm run create-user` creates a dashboard account interactively; the password is hidden while typing, hashed with scrypt, and stored in the database. There is no public signup page. Run the migration and account command against the same database the app will use. `npm run import` loads the CSV files in `data/`.
+
+Start the API and UI in separate terminals. They run at `http://127.0.0.1:4000` and `http://localhost:5173` respectively:
+
+```bash
+npm run dev
+```
+
+```bash
+npm run dev:web
+```
 
 The CSV files in `data/` contain subscriber, website, and app-account data. To send sample mobile events:
 
@@ -38,7 +46,7 @@ The `POST /webhooks/app` endpoint accepts `app_open`, `read_story`, `link_click`
 
 The assistant sends Gemini aggregate tool names, filters, and counts. It does not send the question, conversation history, emails, names, or subscriber rows. Unsupported questions are answered without calling Gemini. Replies containing an email or a two-word name are filtered before display.
 
-Vercel serves the UI and API on one domain; `/api` and `/webhooks` are routed to Express. Keep `VITE_API_BASE_URL` empty. Deploys do not run database migrations or import CSV data, so do those separately. The health check is `GET /api/health`.
+Vercel serves the UI and API on one domain; `/api` and `/webhooks` are routed to Express. Keep `VITE_API_BASE_URL` empty. Set the production environment variables in Vercel, then run `npm run migrate`, `npm run create-user`, and `npm run import` locally with `.env` pointing to the production database. Deploys do not run these setup commands. The health check is `GET /api/health`.
 
 ## Known limits
 

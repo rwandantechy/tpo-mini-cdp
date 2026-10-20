@@ -25,10 +25,12 @@ import { segmentsRouter } from './routes/segments.js';
 import { subscribersRouter } from './routes/subscribers.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { appEventsRouter } from './routes/appEvents.js';
-export function createApp(): Express {
+import type { AuthAccountLookup } from './routes/auth.js';
+
+export function createApp(options: { authAccounts?: AuthAccountLookup } = {}): Express {
   const env = getServerEnv();
   const app = express();
-  morganLogger.token('safe-url', (req) => req.path);
+  morganLogger.token('safe-url', (req) => (req.url ?? '').split('?')[0]);
   app.use(morganLogger(env.NODE_ENV === 'production'
     ? ':remote-addr :method :safe-url :status :res[content-length] - :response-time ms'
     : ':method :safe-url :status :response-time ms'));
@@ -58,7 +60,7 @@ if (env.TRUST_PROXY || process.env.VERCEL === "1") {
   const limiters = createLimiters();
 // Use the health router.
   app.use('/api/health', limiters.api, healthRouter());
-  app.use('/api/auth', limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
+  app.use('/api/auth', limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters, options.authAccounts));
 app.use('/api/app-events', limiters.api, requireAuth, appEventsRouter());
   app.use('/api/overview', limiters.api, requireAuth, overviewRouter());
   app.use('/api/subscribers', limiters.api, requireAuth, subscribersRouter());
@@ -89,7 +91,7 @@ app.use('/api/app-events', limiters.api, requireAuth, appEventsRouter());
 
 /**
  * To address the issue of CommonJS and crashes on these imports.
- * The default export is bundled to `app.mjs` on Vercel. A `.js` build is loaded as CommonJS and crashes on these imports.
+ * The default export is bundled to `app.mjs` on Vercel. A `.js`
  */
 let vercelApp: Express | undefined;
 

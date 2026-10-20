@@ -3,7 +3,8 @@ import { type FormEvent, useState } from 'react';
 import { Button, Card, Field, Notice } from '../../components/ui.tsx';
 import { ApiError } from '../../lib/api.ts';
 
-export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<void> }) {
+export function SignIn({ onSignIn }: { onSignIn: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,7 +15,7 @@ export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<v
     setError(null);
 
     try {
-      await onSignIn(password);
+      await onSignIn(email, password);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not sign in.');
       setPassword('');
@@ -35,18 +36,27 @@ export function SignIn({ onSignIn }: { onSignIn: (password: string) => Promise<v
         <Card className="mt-6 p-5">
           <form onSubmit={submit} className="space-y-4">
             <Field
+              label="Email"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+              autoFocus
+            />
+
+            <Field
               label="Password"
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
-              autoFocus
             />
 
             {error ? <Notice tone="error">{error}</Notice> : null}
 
-            <Button type="submit" className="w-full" disabled={busy || password.length === 0}>
+            <Button type="submit" className="w-full" disabled={busy || email.length === 0 || password.length === 0}>
               {busy ? 'Checking…' : 'Sign in'}
             </Button>
           </form>

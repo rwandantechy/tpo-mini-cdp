@@ -20,7 +20,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "import": "tsx scripts/import-csv.ts",
     "send-event": "tsx scripts/send-event.ts",
-    "hash-password": "tsx scripts/hash-password.ts"
+    "create-user": "tsx scripts/create-user.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

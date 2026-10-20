@@ -14,12 +14,12 @@ import {
   type GeminiRequest,
   type GeminiTurn,
 } from '../src/services/assistant/llm.js';
-import { TEST_PASSWORD } from './helpers/credentials.js';
+import { TEST_EMAIL, TEST_PASSWORD } from './helpers/credentials.js';
 import { buildTestApp, cookieValue } from './helpers/testApp.js';
 
 async function signIn() {
   const app = await buildTestApp();
-  const login = await request(app).post('/api/auth/login').send({ password: TEST_PASSWORD });
+  const login = await request(app).post('/api/auth/login').send({ email: TEST_EMAIL, password: TEST_PASSWORD });
   const token = cookieValue(login.headers['set-cookie'] as unknown as string[], SESSION_COOKIE);
   return { app, cookie: `${SESSION_COOKIE}=${token}` };
 }

@@ -40,13 +40,6 @@ const serverSchema = databaseSchema
         `SESSION_SECRET must be at least ${SECRET_MIN_LENGTH} characters`,
       ),
 
-    APP_PASSWORD_HASH: z
-      .string()
-      .regex(
-        /^scrypt:[0-9a-f]+:[0-9a-f]+$/,
-        'APP_PASSWORD_HASH must look like scrypt:<salt>:<key>',
-      ),
-
     WEBHOOK_SECRET: z
       .string()
       .min(

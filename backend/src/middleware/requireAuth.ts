@@ -3,7 +3,7 @@ import type { RequestHandler } from 'express';
 
 import { getServerEnv } from '../config/env.js';
 import { unauthorized } from '../lib/errors.js';
-import { SESSION_COOKIE, verifySessionToken } from '../lib/session.js';
+import { isAccountSession, SESSION_COOKIE, verifySessionToken } from '../lib/session.js';
 
 // Check the session before allowing access to protected routes.
 export const requireAuth: RequestHandler = (req, _res, next) => {
@@ -14,7 +14,7 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
     req.cookies?.[SESSION_COOKIE] as string | undefined,
   );
 
-  if (!session) {
+  if (!isAccountSession(session)) {
     next(unauthorized());
     return;
   }

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { SESSION_SUBJECT } from '../src/config/constants.js';
 import { createSessionToken, verifySessionToken } from '../src/lib/session.js';
 import { randomCredential, TEST_SESSION_SECRET as SECRET } from './helpers/credentials.js';
 
 const NOW = 1_790_000_000;
+const SESSION_SUBJECT = '00000000-0000-4000-8000-000000000001';
 
 describe('session tokens', () => {
   it('round-trips the subject and expiry', () => {

@@ -10,6 +10,15 @@ export interface SessionPayload {
   sub: string;
   iat: number;
   exp: number;
+  email?: string;
+}
+
+/** Only per-account sessions from the current login flow are accepted. */
+export function isAccountSession(session: SessionPayload | null): session is SessionPayload & { email: string } {
+  return Boolean(
+    session?.email &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(session.sub),
+  );
 }
 
 function sign(secret: string, encodedPayload: string): string {
@@ -21,8 +30,14 @@ export function createSessionToken(
   subject: string,
   nowSeconds: number = Math.floor(Date.now() / 1000),
   ttlSeconds: number = SESSION_TTL_SECONDS,
+  email?: string,
 ): string {
-  const payload: SessionPayload = { sub: subject, iat: nowSeconds, exp: nowSeconds + ttlSeconds };
+  const payload: SessionPayload = {
+    sub: subject,
+    iat: nowSeconds,
+    exp: nowSeconds + ttlSeconds,
+    ...(email ? { email } : {}),
+  };
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 
   return `${encoded}.${sign(secret, encoded)}`;
@@ -54,6 +69,7 @@ export function verifySessionToken(
   }
 
   if (typeof payload?.sub !== 'string' || typeof payload?.exp !== 'number') return null;
+  if (payload.email !== undefined && typeof payload.email !== 'string') return null;
   if (payload.exp <= nowSeconds) return null;
 
   return payload;

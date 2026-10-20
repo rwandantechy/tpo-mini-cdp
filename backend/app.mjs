@@ -36,8 +36,8 @@ var DEFAULT_PORT = 4e3;
 var DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 var DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
 var SECRET_MIN_LENGTH = 32;
-var SESSION_SUBJECT = "growth";
 var SESSION_TTL_SECONDS = 12 * 60 * 60;
+var PASSWORD_MIN_LENGTH = 12;
 var PASSWORD_MAX_LENGTH = 200;
 var WEBHOOK_REPLAY_WINDOW_SECONDS = 300;
 var WEBHOOK_ID_MAX_LENGTH = 128;
@@ -62,7 +62,7 @@ var ENGAGED_PRESET = {
 };
 var ENGAGED_SEGMENT_NAME = "Most engaged readers";
 var JSON_BODY_LIMIT = "16kb";
-var DB_POOL_MAX = 10;
+var DB_POOL_MAX = 2;
 var DB_IDLE_TIMEOUT_MS = 3e4;
 var DB_CONNECT_TIMEOUT_MS = 1e4;
 var SLOW_QUERY_MS = 500;
@@ -104,10 +104,6 @@ var serverSchema = databaseSchema.extend({
   SESSION_SECRET: z.string().min(
     SECRET_MIN_LENGTH,
     `SESSION_SECRET must be at least ${SECRET_MIN_LENGTH} characters`
-  ),
-  APP_PASSWORD_HASH: z.string().regex(
-    /^scrypt:[0-9a-f]+:[0-9a-f]+$/,
-    "APP_PASSWORD_HASH must look like scrypt:<salt>:<key>"
   ),
   WEBHOOK_SECRET: z.string().min(
     SECRET_MIN_LENGTH,
@@ -370,11 +366,21 @@ function createLimiters() {
 // src/lib/session.ts
 import { createHmac, timingSafeEqual } from "node:crypto";
 var SESSION_COOKIE = "tpo_session";
+function isAccountSession(session) {
+  return Boolean(
+    session?.email && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(session.sub)
+  );
+}
 function sign(secret, encodedPayload) {
   return createHmac("sha256", secret).update(encodedPayload).digest("hex");
 }
-function createSessionToken(secret, subject, nowSeconds = Math.floor(Date.now() / 1e3), ttlSeconds = SESSION_TTL_SECONDS) {
-  const payload = { sub: subject, iat: nowSeconds, exp: nowSeconds + ttlSeconds };
+function createSessionToken(secret, subject, nowSeconds = Math.floor(Date.now() / 1e3), ttlSeconds = SESSION_TTL_SECONDS, email) {
+  const payload = {
+    sub: subject,
+    iat: nowSeconds,
+    exp: nowSeconds + ttlSeconds,
+    ...email ? { email } : {}
+  };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return `${encoded}.${sign(secret, encoded)}`;
 }
@@ -394,6 +400,7 @@ function verifySessionToken(secret, token, nowSeconds = Math.floor(Date.now() / 
     return null;
   }
   if (typeof payload?.sub !== "string" || typeof payload?.exp !== "number") return null;
+  if (payload.email !== void 0 && typeof payload.email !== "string") return null;
   if (payload.exp <= nowSeconds) return null;
   return payload;
 }
@@ -405,7 +412,7 @@ var requireAuth = (req, _res, next) => {
     env.SESSION_SECRET,
     req.cookies?.[SESSION_COOKIE]
   );
-  if (!session) {
+  if (!isAccountSession(session)) {
     next(unauthorized());
     return;
   }
@@ -1947,7 +1954,16 @@ import { z as z5 } from "zod";
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
 import { promisify } from "node:util";
 var scrypt = promisify(scryptCallback);
+var SALT_BYTES = 16;
 var KEY_BYTES = 64;
+async function hashPassword(password) {
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    throw new Error(`Password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
+  }
+  const salt = randomBytes(SALT_BYTES);
+  const key = await scrypt(password, salt, KEY_BYTES);
+  return `scrypt:${salt.toString("hex")}:${key.toString("hex")}`;
+}
 async function verifyPassword(password, stored) {
   const [scheme, saltHex, keyHex] = stored.split(":");
   if (scheme !== "scrypt" || !saltHex || !keyHex) return false;
@@ -1957,10 +1973,28 @@ async function verifyPassword(password, stored) {
   return timingSafeEqual3(actual, expected);
 }
 
+// src/services/authAccounts.ts
+async function findAuthAccountByEmail(email) {
+  const rows = await query(
+    `select id, email_original, email_normalized, password_hash
+     from auth_accounts where email_normalized = $1`,
+    [normalizeEmail(email)]
+  );
+  const row = rows[0];
+  return row ? {
+    id: row.id,
+    email: row.email_original,
+    emailNormalized: row.email_normalized,
+    passwordHash: row.password_hash
+  } : null;
+}
+
 // src/routes/auth.ts
 var loginSchema = z5.object({
+  email: z5.string().trim().email().max(254),
   password: z5.string().min(1, "Enter the password.").max(PASSWORD_MAX_LENGTH)
 });
+var dummyPasswordHash = hashPassword("nonexistent-account password");
 function cookieOptions() {
   const env = getServerEnv();
   return {
@@ -1971,18 +2005,23 @@ function cookieOptions() {
     maxAge: SESSION_TTL_SECONDS * 1e3
   };
 }
-function authRouter(limiters) {
+function authRouter(limiters, accounts = { findByEmail: findAuthAccountByEmail }) {
   const router = Router2();
   router.post("/login", limiters.login, async (req, res) => {
-    const { password } = loginSchema.parse(req.body);
+    const { email, password } = loginSchema.parse(req.body);
     const env = getServerEnv();
-    const ok = await verifyPassword(password, env.APP_PASSWORD_HASH);
-    if (!ok) {
+    const account = await accounts.findByEmail(email);
+    const passwordMatches = await verifyPassword(password, account?.passwordHash ?? await dummyPasswordHash);
+    if (!account || !passwordMatches) {
       log.warn("failed sign-in");
-      throw unauthorized("That password is not right.");
+      throw unauthorized("Email or password is not right.");
     }
-    res.cookie(SESSION_COOKIE, createSessionToken(env.SESSION_SECRET, SESSION_SUBJECT), cookieOptions());
-    res.json({ authenticated: true, user: SESSION_SUBJECT });
+    res.cookie(
+      SESSION_COOKIE,
+      createSessionToken(env.SESSION_SECRET, account.id, void 0, void 0, account.email),
+      cookieOptions()
+    );
+    res.json({ authenticated: true, user: account.email });
   });
   router.post("/logout", (_req, res) => {
     res.clearCookie(SESSION_COOKIE, { ...cookieOptions(), maxAge: void 0 });
@@ -1991,7 +2030,7 @@ function authRouter(limiters) {
   router.get("/session", (req, res) => {
     const env = getServerEnv();
     const session = verifySessionToken(env.SESSION_SECRET, req.cookies?.[SESSION_COOKIE]);
-    res.json(session ? { authenticated: true, user: session.sub } : { authenticated: false });
+    res.json(isAccountSession(session) ? { authenticated: true, user: session.email } : { authenticated: false });
   });
   return router;
 }
@@ -2342,10 +2381,10 @@ function appEventsRouter() {
 }
 
 // src/app.ts
-function createApp() {
+function createApp(options = {}) {
   const env = getServerEnv();
   const app = express();
-  morganLogger.token("safe-url", (req) => req.path);
+  morganLogger.token("safe-url", (req) => (req.url ?? "").split("?")[0]);
   app.use(morganLogger(env.NODE_ENV === "production" ? ":remote-addr :method :safe-url :status :res[content-length] - :response-time ms" : ":method :safe-url :status :response-time ms"));
   app.disable("x-powered-by");
   if (env.TRUST_PROXY || process.env.VERCEL === "1") {
@@ -2365,7 +2404,7 @@ function createApp() {
   app.use(cookieParser());
   const limiters = createLimiters();
   app.use("/api/health", limiters.api, healthRouter());
-  app.use("/api/auth", limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters));
+  app.use("/api/auth", limiters.api, express.json({ limit: JSON_BODY_LIMIT }), authRouter(limiters, options.authAccounts));
   app.use("/api/app-events", limiters.api, requireAuth, appEventsRouter());
   app.use("/api/overview", limiters.api, requireAuth, overviewRouter());
   app.use("/api/subscribers", limiters.api, requireAuth, subscribersRouter());
